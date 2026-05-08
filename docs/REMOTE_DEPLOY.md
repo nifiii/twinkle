@@ -61,9 +61,9 @@ ufw allow 80/tcp
 
 #### Step 3 · DNS 解析
 
-将 `HLOS_DOMAIN`（如 `learn.example.com`）的 A 记录指向服务器公网 IP，等待生效（`dig +short learn.example.com` 能返回 IP 即可）。
+将你的域名（如 `learn.example.com`）的 A 记录指向服务器公网 IP，等待生效（`dig +short learn.example.com` 能返回 IP 即可）。
 
-> 没有域名也可以：在 `.env` 中将 `HLOS_DOMAIN` 设为公网 IP，即可通过 IP 直接访问。
+> 没有域名也可以：在 Nginx 配置文件中将 server_name 设为公网 IP 或者 _，即可通过 IP 直接访问。
 
 #### Step 4 · 拉代码
 
@@ -87,7 +87,7 @@ vim .env
 
 | 变量 | 说明 | 获取方式 |
 |---|---|---|
-| `HLOS_DOMAIN` | 域名或公网 IP | 自有 |
+
 | `ARK_API_KEY` | 火山引擎豆包 Key | https://console.volcengine.com/ark |
 | `ARK_MODEL_ID` | 豆包文本模型 endpoint id | 火山引擎控制台 → 在线推理 → 自定义推理接入点 |
 | `ARK_VISION_MODEL_ID` | 豆包视觉模型 endpoint id（OCR 用） | 同上 |
@@ -120,10 +120,10 @@ sudo ./deploy.sh
 
 ```bash
 curl http://127.0.0.1:3000/api/health   # 容器直连
-curl http://<HLOS_DOMAIN>/health        # 经 Nginx
+curl http://<YOUR_DOMAIN>/health        # 经 Nginx
 ```
 
-浏览器访问 `http://<HLOS_DOMAIN>` 应看到登录/选角色界面。
+浏览器访问 `http://<YOUR_DOMAIN>` 应看到登录/选角色界面。
 
 ### 3.4 更新
 
@@ -142,12 +142,12 @@ curl https://get.acme.sh | sh
 ~/.acme.sh/acme.sh --upgrade --auto-upgrade
 
 # 2. 签发证书（HTTP-01 验证，需 80 端口可达）
-~/.acme.sh/acme.sh --issue -d <HLOS_DOMAIN> --webroot /var/www/html
+~/.acme.sh/acme.sh --issue -d <YOUR_DOMAIN> --webroot /var/www/html
 # 或用 DNS 验证：参见 acme.sh 文档
 
 # 3. 安装到系统目录
 mkdir -p /etc/nginx/ssl
-~/.acme.sh/acme.sh --install-cert -d <HLOS_DOMAIN> \
+~/.acme.sh/acme.sh --install-cert -d <YOUR_DOMAIN> \
   --fullchain-file /etc/nginx/ssl/fullchain.cer \
   --key-file       /etc/nginx/ssl/privkey.key \
   --reloadcmd      "systemctl reload nginx"

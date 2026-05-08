@@ -37,11 +37,10 @@ set -a
 source "$ENV_FILE"
 set +a
 
-[ -n "${HLOS_DOMAIN:-}" ]  || fail "$ENV_FILE 缺少 HLOS_DOMAIN"
 [ -n "${ARK_API_KEY:-}" ]  || fail "$ENV_FILE 缺少 ARK_API_KEY"
 [ -n "${ARK_MODEL_ID:-}" ] || fail "$ENV_FILE 缺少 ARK_MODEL_ID"
 
-ok "前置检查通过 (域名: $HLOS_DOMAIN)"
+ok "前置检查通过"
 
 # ---------- 3. 准备数据目录 ----------
 mkdir -p "$DATA_DIR"
@@ -92,7 +91,7 @@ echo ""
 echo "================================"
 ok "部署完成"
 echo ""
-echo "📍 访问地址:    http://$HLOS_DOMAIN"
+echo "📍 访问地址:    http://<配置的服务器IP或域名>"
 echo "📍 容器日志:    docker logs -f $CONTAINER"
 echo "📍 容器重启:    docker restart $CONTAINER"
 

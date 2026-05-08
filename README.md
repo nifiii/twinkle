@@ -64,7 +64,7 @@ apt-get update && apt-get install -y curl git
 # 2. 拉代码（任意目录均可）
 git clone <repo-url> && cd HL-os
 
-# 3. 配置环境变量（必填: HLOS_DOMAIN / ARK_API_KEY / ARK_MODEL_ID / ARK_VISION_MODEL_ID）
+# 3. 配置环境变量（必填: ARK_API_KEY / ARK_MODEL_ID / ARK_VISION_MODEL_ID）
 cp .env.example .env
 vim .env
 
@@ -72,7 +72,7 @@ vim .env
 sudo ./deploy.sh
 ```
 
-部署完成后访问 `http://<HLOS_DOMAIN>`。
+部署完成后访问配置的域名或IP。
 
 ### 后续更新
 
