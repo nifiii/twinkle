@@ -1,0 +1,121 @@
+/* FontAwesome - must be imported first */
+@import '@fortawesome/fontawesome-free/css/all.min.css';
+
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global Styles */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #f3f4f6;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* BookReader 全屏：直接隐藏 Layout 的 header / 桌面侧栏 / 移动底栏，
+   避免 z-index/堆叠上下文之争（Why: 移动端 Safari 上 fixed + z-[100] 与
+   header 的 z-50 实测仍出现遮挡，根因疑似 backdrop-blur/transform 创建的
+   stacking context；直接 display:none 无歧义） */
+body.reader-fullscreen #root > div > header,
+body.reader-fullscreen #root > div > nav {
+  display: none !important;
+}
+
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  transition: opacity 0.4s ease;
+}
+
+.spinner {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #0ea5e9;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.retry-btn {
+  margin-top: 2rem;
+  padding: 12px 28px;
+  background: #0ea5e9;
+  color: white;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 10px 15px -3px rgba(14, 165, 233, 0.3);
+}
+
+/* 响应式优化 */
+@layer utilities {
+  /* 滚动条隐藏 */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 淡入动画 */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* 移动端触摸优化 */
+  @media (max-width: 768px) {
+    /* 增大可点击区域 */
+    button, a, input, select {
+      min-height: 44px;
+    }
+
+    /* 防止双击缩放 */
+    * {
+      touch-action: manipulation;
+    }
+  }
+
+  /* 安全区域适配 (iOS 刘海屏) */
+  @supports (padding: env(safe-area-inset-bottom)) {
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .safe-top {
+      padding-top: env(safe-area-inset-top);
+    }
+  }
+}

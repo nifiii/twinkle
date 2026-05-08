@@ -1,0 +1,80 @@
+# 闪闪 Nginx 反向代理配置
+# 由 deploy.sh 通过 envsubst 渲染，写入 /etc/nginx/conf.d/hl-os.conf
+# 仅替换 ${HLOS_DOMAIN}，其他 $ 变量用 $$ 转义保留给 nginx 运行时使用
+
+server {
+    listen 80;
+    server_name ${HLOS_DOMAIN};
+
+    client_max_body_size 1024M;
+    client_body_timeout 600s;
+    client_header_timeout 600s;
+
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+        proxy_set_header Upgrade $$http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # 大文件上传与长连接
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_connect_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+    }
+}
+
+# ================================================================
+# 启用 HTTPS：取消下方注释，填入证书路径，并把上面 80 端口的 location /
+# 改为 `return 301 https://$$host$$request_uri;`
+# ================================================================
+# server {
+#     listen 443 ssl;
+#     http2 on;
+#     server_name ${HLOS_DOMAIN};
+#
+#     ssl_certificate     /path/to/fullchain.cer;
+#     ssl_certificate_key /path/to/privkey.key;
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_session_timeout 1d;
+#     ssl_session_cache shared:SSL:50m;
+#     ssl_prefer_server_ciphers off;
+#
+#     client_max_body_size 1024M;
+#     client_body_timeout 600s;
+#     client_header_timeout 600s;
+#
+#     location /health {
+#         access_log off;
+#         return 200 "healthy\n";
+#         add_header Content-Type text/plain;
+#     }
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:3000;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $$host;
+#         proxy_set_header X-Real-IP $$remote_addr;
+#         proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $$scheme;
+#         proxy_set_header Upgrade $$http_upgrade;
+#         proxy_set_header Connection "upgrade";
+#         proxy_request_buffering off;
+#         proxy_buffering off;
+#         proxy_connect_timeout 3600s;
+#         proxy_send_timeout 3600s;
+#         proxy_read_timeout 3600s;
+#     }
+# }

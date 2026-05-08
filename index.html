@@ -1,0 +1,68 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>闪闪</title>
+
+    <!-- Inter 字体（科技风英文/数字） -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- 关键路径 CSS: 加载动画 -->
+    <style>
+      #loading-overlay { position: fixed; inset: 0; background: linear-gradient(180deg, #ECF2E7 0%, #E1E9DC 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.4s ease; }
+      .spinner { width: 36px; height: 36px; border: 3px solid transparent; border-top: 3px solid #15803D; border-right: 3px solid #1F6FB2; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .retry-btn { margin-top: 2rem; padding: 12px 28px; background: linear-gradient(135deg, #4A90E2, #5FD4A0); color: white; border-radius: 16px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; box-shadow: 0 10px 20px -5px rgba(74, 144, 226, 0.3); transition: transform 0.2s, box-shadow 0.2s; }
+      .retry-btn:hover { transform: translateY(-2px); box-shadow: 0 14px 24px -5px rgba(74, 144, 226, 0.4); }
+    </style>
+  </head>
+  <body>
+    <div id="loading-overlay">
+      <div id="loader-content" style="text-align: center; padding: 20px;">
+        <div class="spinner" style="margin: 0 auto;"></div>
+        <p id="loading-text" style="margin-top: 1.5rem; font-size: 14px; color: #5C6655; font-weight: 500; font-family: Inter, sans-serif; letter-spacing: 0.02em;">正在连接闪闪引擎...</p>
+        <button id="retry-button" class="retry-btn" style="display: none;" onclick="location.reload()">资源加载超时，请点击刷新</button>
+      </div>
+    </div>
+    
+    <div id="root"></div>
+
+    <!-- 入口脚本：显式使用相对路径引用本地文件 -->
+    <script type="module" src="./index.tsx"></script>
+
+    <script>
+      // 容错与自动隐藏逻辑
+      const loadTimer = setTimeout(() => {
+        const root = document.getElementById('root');
+        if (root && root.children.length === 0) {
+          const loadingText = document.getElementById('loading-text');
+          if (loadingText) loadingText.innerText = '检测到网络链路受阻，请尝试刷新。';
+          const retryBtn = document.getElementById('retry-button');
+          if (retryBtn) retryBtn.style.display = 'inline-block';
+        }
+      }, 12000);
+
+      window.hideAppLoader = function() {
+        clearTimeout(loadTimer);
+        const loader = document.getElementById('loading-overlay');
+        if (loader) {
+          loader.style.opacity = '0';
+          setTimeout(() => loader.remove(), 500);
+        }
+      };
+
+      // 捕获关键资源加载失败
+      window.addEventListener('error', (e) => {
+        if (e.target && e.target.tagName === 'SCRIPT') {
+          console.error('关键资源加载失败:', e.target.src);
+        }
+      }, true);
+    </script>
+</body>
+</html>
