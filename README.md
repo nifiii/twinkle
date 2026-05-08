@@ -54,12 +54,12 @@
 ### 全新服务器（首次）
 
 ```bash
-# 1. 装 Docker / Nginx / envsubst
+# 1. 装 Docker
 curl -fsSL https://get.docker.com | sh && systemctl enable --now docker
 # Ubuntu / Debian:
-apt-get update && apt-get install -y nginx gettext-base curl git
+apt-get update && apt-get install -y curl git
 # CentOS / RHEL:
-# yum install -y nginx gettext curl git
+# yum install -y curl git
 
 # 2. 拉代码（任意目录均可）
 git clone <repo-url> && cd HL-os
@@ -80,7 +80,7 @@ sudo ./deploy.sh
 cd HL-os && git pull && sudo ./deploy.sh
 ```
 
-`deploy.sh` 会重新构建镜像、滚动替换容器、重渲 Nginx 配置、做健康检查。容器无状态，数据全部落在宿主 `/opt/hl-os/data`。
+`deploy.sh` 会重新构建镜像、滚动替换容器、做健康检查。容器无状态，数据全部落在宿主 `/opt/hl-os/data`。
 
 ### 关键约定
 
@@ -89,7 +89,7 @@ cd HL-os && git pull && sudo ./deploy.sh
 | 环境变量文件 | 项目根 `.env`（已在 `.gitignore` 中）|
 | 数据目录 | `/opt/hl-os/data`（宿主，挂载到容器）|
 | 容器端口 | `127.0.0.1:3000`（仅本机，外部经 Nginx）|
-| Nginx 配置 | `/etc/nginx/conf.d/hl-os.conf`（由 `nginx.conf.template` 渲染）|
+| Nginx 配置 | `/etc/nginx/conf.d/hl-os.conf`（需用户自行配置，参考 `nginx.conf.example`）|
 | 镜像名 | `hl-os:latest` |
 | 容器名 | `hl-os` |
 
@@ -104,12 +104,11 @@ SQLite，**无需手工 SQL**。后端启动时自动：
 
 ### 启用 HTTPS（可选）
 
-`nginx.conf.template` 末尾保留了 HTTPS server 块的注释模板。启用步骤：
+`nginx.conf.example` 末尾保留了 HTTPS server 块的注释模板。参考启用步骤：
 
 1. 用 acme.sh 或 certbot 签发证书
-2. 取消模板中 HTTPS 段注释，填入证书路径
+2. 按照模板中 HTTPS 段填入证书路径
 3. 把 80 端口的 `location /` 改为 `return 301 https://$host$request_uri;`
-4. 重新执行 `./deploy.sh`
 
 详见 [docs/REMOTE_DEPLOY.md](docs/REMOTE_DEPLOY.md)。
 
@@ -121,8 +120,6 @@ SQLite，**无需手工 SQL**。后端启动时自动：
 docker logs -f hl-os               # 查看后端日志
 docker restart hl-os               # 重启容器
 docker exec -it hl-os sh           # 进入容器
-systemctl reload nginx             # 重载 Nginx
-tail -f /var/log/nginx/error.log   # Nginx 错误日志
 
 # 备份数据
 tar czf hlos-backup-$(date +%F).tar.gz -C /opt/hl-os data
@@ -166,7 +163,7 @@ npm run dev          # http://localhost:3000
 |---|---|
 | `Dockerfile` | 三阶段构建（前端 → 后端 → 运行）|
 | `.dockerignore` | 构建上下文排除项 |
-| `nginx.conf.template` | Nginx 配置模板（`${HLOS_DOMAIN}` 占位）|
+| `nginx.conf.example` | Nginx 配置示例（仅供参考，不参与部署）|
 | `deploy.sh` | 一键部署脚本 |
 | `.env.example` | 环境变量模板 |
 | `docs/REMOTE_DEPLOY.md` | 全新机器部署详细指南 |

@@ -1,0 +1,62 @@
+# 闪闪 Nginx 反向代理配置示例
+# 本文件仅作为配置参考，不参与自动部署
+# 请根据实际情况修改 CHANGE.ME，并保存为实际的 nginx 配置文件（如 /etc/nginx/conf.d/twinkle.conf）
+
+server {
+    listen 80;
+    server_name CHANGE.ME;
+
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl; # 禁用 http2，Nginx 1.14.1 在处理大静态文件时可能抛出 ERR_HTTP2_PROTOCOL_ERROR
+    server_name CHANGE.ME;
+    ssl_certificate CHANGE.ME;
+    ssl_certificate_key CHANGE.ME;
+
+    # SSL 性能与安全优化
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # 基础定义
+    set $frontend_root /opt/hl-os/frontend;
+    root $frontend_root;
+    client_header_timeout 120s;
+    client_body_timeout 120s;
+
+    # 后端 API 代理
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # 头部传递
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 针对大文件上传和长连接的深度优化
+        client_max_body_size 1024M;
+        proxy_request_buffering off; # 关闭请求缓冲，直接流式传给后端
+        proxy_buffering off;        # 关闭响应缓冲
+
+        # 超时设置（6000s 稍微有点过大，建议根据实际最长业务调整，此处维持你的需求）
+        proxy_connect_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+    }
+}

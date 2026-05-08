@@ -2,7 +2,7 @@
 
 ## 1. 背景
 
-本项目采用**单容器 Docker 部署**：前端静态资源、后端 Express、SQLite 数据库全部封装在一个镜像内。宿主机仅需 Docker + Nginx + envsubst 三项依赖。
+本项目采用**单容器 Docker 部署**：前端静态资源、后端 Express、SQLite 数据库全部封装在一个镜像内。宿主机仅需 Docker + Nginx 两项依赖。
 
 ## 2. 目标
 
@@ -27,7 +27,6 @@
 |---|---|---|
 | Docker | 跑容器 | `curl -fsSL https://get.docker.com \| sh && systemctl enable --now docker` |
 | Nginx | 反向代理入口 | `apt-get install -y nginx` 或 `yum install -y nginx` |
-| envsubst | 渲染 Nginx 模板 | `apt-get install -y gettext-base` 或 `yum install -y gettext` |
 | curl | 健康检查 | 通常已预装 |
 
 宿主**不需要** Node.js（编译在容器内完成）。
@@ -43,10 +42,10 @@ systemctl enable --now docker
 
 # Ubuntu/Debian
 apt-get update
-apt-get install -y nginx gettext-base curl git
+apt-get install -y curl git
 
 # CentOS/RHEL
-# yum install -y nginx gettext curl git
+# yum install -y curl git
 # systemctl enable --now nginx
 ```
 
@@ -115,9 +114,7 @@ sudo ./deploy.sh
 2. 创建 `/opt/hl-os/data`
 3. `docker build -t hl-os:latest .`（首次约 5–8 分钟）
 4. 替换/启动容器 `hl-os`，挂载数据卷，绑定 `127.0.0.1:3000`
-5. 用 envsubst 渲染 `nginx.conf.template` → `/etc/nginx/conf.d/hl-os.conf`
-6. `nginx -t && systemctl reload nginx`
-7. 健康检查 `/api/health`
+5. 健康检查 `/api/health`
 
 #### Step 7 · 验证
 
@@ -155,10 +152,10 @@ mkdir -p /etc/nginx/ssl
   --key-file       /etc/nginx/ssl/privkey.key \
   --reloadcmd      "systemctl reload nginx"
 
-# 4. 改 nginx.conf.template:
+# 4. 改 nginx.conf.example (供参考，配置你实际的 nginx 配置文件):
 #    - 取消 HTTPS server 块全部注释
 #    - 把 80 端口的 location / 改为:
-#        return 301 https://$$host$$request_uri;
+#        return 301 https://$host$request_uri;
 # 5. 重新部署
 ./deploy.sh
 ```
@@ -226,7 +223,7 @@ ss -tlnp | grep 3000                            # 端口
 ```
 
 ### Q3 上传大文件 413 Request Entity Too Large？
-`nginx.conf.template` 已设 `client_max_body_size 1024M`。如仍触发，确认 `nginx -T | grep client_max_body_size` 输出当前生效值。
+`nginx.conf.example` 已设 `client_max_body_size 1024M`。如仍触发，确认 `nginx -T | grep client_max_body_size` 输出当前生效值。
 
 ### Q4 数据库被锁/损坏怎么办？
 ```bash
@@ -243,7 +240,7 @@ docker logs -f hl-os
 拍题轮询日志已被屏蔽，看到的都是有效请求。
 
 ### Q6 我想改容器端口（不用 3000）？
-`.env` 改 `PORT=4000`；`deploy.sh` 中 `-p 127.0.0.1:3000:3000` 同步改成 `-p 127.0.0.1:4000:4000`；`nginx.conf.template` 中 `proxy_pass http://127.0.0.1:3000;` 同步改。三处必须一致。
+`.env` 改 `PORT=4000`；`deploy.sh` 中 `-p 127.0.0.1:3000:3000` 同步改成 `-p 127.0.0.1:4000:4000`；Nginx 配置中 `proxy_pass http://127.0.0.1:3000;` 同步改。三处必须一致。
 
 ### Q7 想跑多实例（蓝绿/灰度）？
 本项目是个人/家庭使用场景，**不建议**多实例 —— SQLite 不支持多写并发。如确有需要，迁到 PostgreSQL 后再讨论。
