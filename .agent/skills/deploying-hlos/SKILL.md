@@ -36,7 +36,7 @@ The remote server is accessible via SSH. The project repository is located at `/
 
 ```bash
 # Connect to the remote server and trigger the pull & deploy script
-ssh -p 12346 ops@43.132.29.64  "git pull https://github.com/nifiii/twinkle.git && cp /tmp/.env . && cd twinkle && sudo./deploy.sh"
+ssh -p 12346 ops@43.132.29.64 "cd twinkle && git pull && cp /tmp/.env . && sudo chmod +x deploy.sh && sudo ./deploy.sh"
 ```
 *Note: If `jia.haokuai.uk` is unresolvable, you can fallback to the IP `47.79.4.52`: `ssh -i ~/.ssh/id_rsa -o "HostName=47.79.4.52" root@47.79.4.52`*
 
