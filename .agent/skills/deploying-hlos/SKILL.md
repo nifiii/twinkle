@@ -1,6 +1,6 @@
 ---
 name: deploying-hlos
-description: Use when you need to deploy code updates, trigger the build process, and test the HL-OS application on the remote server (jia.haokuai.uk).
+description: Use when you need to deploy code updates, trigger the build process, and test the HL-OS application on the remote server (dd.haokuai.uk).
 ---
 
 # Deploying HL-OS
@@ -38,7 +38,7 @@ The remote server is accessible via SSH. The project repository is located at `/
 # Connect to the remote server and trigger the pull & deploy script
 ssh -p 12346 ops@43.132.29.64 "cd twinkle && git pull && cp /tmp/.env . && sudo chmod +x deploy.sh && sudo ./deploy.sh"
 ```
-*Note: If `jia.haokuai.uk` is unresolvable, you can fallback to the IP `47.79.4.52`: `ssh -i ~/.ssh/id_rsa -o "HostName=47.79.4.52" root@47.79.4.52`*
+*Note: If `dd.haokuai.uk` is unresolvable, you can fallback to the IP `47.79.4.52`: `ssh -i ~/.ssh/id_rsa -o "HostName=47.79.4.52" root@47.79.4.52`*
 
 ### 3. Verify Deployment (Test Upload & Save)
 
@@ -47,14 +47,14 @@ To verify the backend and Nginx configurations are working correctly, perform an
 **Step A: Upload a Test Document**
 Upload a test file to generate temporary paths and metadata.
 ```bash
-curl -F "file=@asd_15pages.pdf" http://jia.haokuai.uk/api/upload-book > upload-result.json
+curl -F "file=@asd_15pages.pdf" http://dd.haokuai.uk/api/upload-book > upload-result.json
 ```
 
 **Step B: Trigger the Save/Processing Workflow**
 Parse the `tempFilePath` and other metadata from Step A, and push it to the `/api/save-book` endpoint.
 ```bash
 # Example curl using a local JSON payload
-curl -X POST http://jia.haokuai.uk/api/save-book \
+curl -X POST http://dd.haokuai.uk/api/save-book \
   -H "Content-Type: application/json" \
   -d @test-save.json
 ```
@@ -65,19 +65,19 @@ The backend runs as a systemd service (`hl-backend`). Check the logs to ensure t
 
 ```bash
 # Tail the logs remotely
-ssh root@jia.haokuai.uk "journalctl -u hl-backend -n 100 --no-pager"
+ssh root@dd.haokuai.uk "journalctl -u hl-backend -n 100 --no-pager"
 ```
 
 ## Common Mistakes
 
 | Problem | Cause & Fix |
 |---|---|
-| SSH Hostname Resolution Fails (hl-os) | The local `.ssh/config` might have outdated rules. Override it explicitly by using `ssh root@jia.haokuai.uk`. |
+| SSH Hostname Resolution Fails (hl-os) | The local `.ssh/config` might have outdated rules. Override it explicitly by using `ssh root@dd.haokuai.uk`. |
 | API Returns 502 Bad Gateway | Nginx is up but the Node backend failed to start. Check backend logs via `journalctl -u hl-backend` to detect missing dependencies or syntax errors during build. |
 | File Upload Fails / Temp File Missing | Ensure the `/opt/hl-os/data/uploads` directory has proper 777 permissions or is chowned by the backend user (`nobody` / `www-data`). |
 
 ## Quick Reference Commands
 
-- **Check Backend Service Status:** `ssh root@jia.haokuai.uk "systemctl status hl-backend"`
-- **Restart Backend:** `ssh root@jia.haokuai.uk "systemctl restart hl-backend"`
-- **Review Nginx Error Logs:** `ssh root@jia.haokuai.uk "tail -n 50 /var/log/nginx/error.log"`
+- **Check Backend Service Status:** `ssh root@dd.haokuai.uk "systemctl status hl-backend"`
+- **Restart Backend:** `ssh root@dd.haokuai.uk "systemctl restart hl-backend"`
+- **Review Nginx Error Logs:** `ssh root@dd.haokuai.uk "tail -n 50 /var/log/nginx/error.log"`
