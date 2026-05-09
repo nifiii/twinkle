@@ -1,7 +1,51 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
+
+// TTS 磁盘缓存目录，挂载在持久化数据卷内
+// Why: 课件 ID + 分段索引唯一确定文本内容，生成一次即可永久复用
+const DATA_DIR = process.env.DATA_DIR || '/opt/twinkle/data';
+const TTS_CACHE_DIR = path.join(DATA_DIR, 'tts_cache');
+
+/**
+ * 确保缓存目录存在（首次调用时创建）
+ */
+function ensureCacheDir(coursewareId: string): string {
+  const dir = path.join(TTS_CACHE_DIR, coursewareId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+/**
+ * 从磁盘读取缓存 MP3（返回 base64 或 null）
+ */
+function readCachedAudio(coursewareId: string, chunkIdx: number): string | null {
+  try {
+    const filePath = path.join(TTS_CACHE_DIR, coursewareId, `${chunkIdx}.mp3`);
+    if (!fs.existsSync(filePath)) return null;
+    return fs.readFileSync(filePath).toString('base64');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 将合成的 MP3 Buffer 写入磁盘缓存
+ */
+function writeCachedAudio(coursewareId: string, chunkIdx: number, buf: Buffer): void {
+  try {
+    const dir = ensureCacheDir(coursewareId);
+    fs.writeFileSync(path.join(dir, `${chunkIdx}.mp3`), buf);
+  } catch (e: any) {
+    // 写入失败不阻断响应（磁盘空间不足等情况）
+    console.warn(`[TTS] 缓存写入失败 coursewareId=${coursewareId} chunkIdx=${chunkIdx}:`, e.message);
+  }
+}
 
 // 按花括号深度扫描，把多个顺序拼接的 JSON 对象切成独立帧。
 // 必须正确处理字符串内的 { } 与转义，否则 base64 中含 } 会被误判。
@@ -52,14 +96,24 @@ function parseJsonFrames(input: string): any[] {
 
 // POST /api/tts
 // 代理调用火山引擎 TTS V3 接口（HTTP unidirectional），返回 base64 音频
-// 新版控制台 API Key 认证文档: https://www.volcengine.com/docs/6561/2119699
+// 支持磁盘持久化缓存：coursewareId + chunkIdx 命中时直接返回，跳过豆包 API 调用
 // 认证方式: 新版控制台 API Key，使用 X-Api-Key + X-Api-Resource-Id 两个 Header
-// app.appid / app.token 传空字符串（新版不需要 AppID）
 router.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
-  const { text } = req.body;
+  const { text, coursewareId, chunkIdx } = req.body;
 
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json({ success: false, error: '缺少 text 参数' });
+  }
+
+  // ── 磁盘缓存命中检查 ──────────────────────────────────────
+  // 仅当 coursewareId 和 chunkIdx 都提供时才尝试缓存
+  const hasCacheKey = coursewareId && typeof coursewareId === 'string' && typeof chunkIdx === 'number';
+  if (hasCacheKey) {
+    const cached = readCachedAudio(coursewareId, chunkIdx);
+    if (cached) {
+      console.log(`[TTS] 缓存命中 coursewareId=${coursewareId} chunkIdx=${chunkIdx}`);
+      return res.json({ success: true, audio: cached, encoding: 'mp3', cached: true });
+    }
   }
 
   // 新版控制台 API Key 认证：只需要 API Key，不需要 AppID
@@ -89,7 +143,7 @@ router.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
     // V3 语音合成 2.0 (seed-tts-2.0) 专属的 JSON Payload 结构
     // 注意：与 V1 接口不同，不再使用 app/audio 嵌套，而是使用 namespace 和 req_params
     const payload = {
-      user: { uid: 'hlos_user' },
+      user: { uid: 'twinkle_user' },
       namespace: 'BidirectionalTTS', // V3 接口强制要求的固定 namespace
       req_params: {
         text: limitedText,
@@ -153,6 +207,13 @@ router.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const merged = Buffer.concat(audioBuffers);
+
+    // ── 写入磁盘缓存 ──────────────────────────────────────────
+    if (hasCacheKey) {
+      writeCachedAudio(coursewareId, chunkIdx, merged);
+      console.log(`[TTS] 已缓存 coursewareId=${coursewareId} chunkIdx=${chunkIdx} size=${merged.length}B`);
+    }
+
     return res.json({
       success: true,
       audio: merged.toString('base64'),

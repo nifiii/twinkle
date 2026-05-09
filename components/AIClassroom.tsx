@@ -167,12 +167,16 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
   const [paused, setPaused] = useState(false);
   const [chunkIdx, setChunkIdx] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [prefetchingCount, setPrefetchingCount] = useState(0);
   const [errMsg, setErrMsg] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopRef = useRef(false);
   const markedRef = useRef(false);
+  // 内存预取缓存：key=idx，value=Promise<string|null>（base64 或 null=失败）
+  // 用 Promise 而非结果值，保证同 idx 不发起重复请求（并发安全）
+  const prefetchCache = useRef<Map<number, Promise<string | null>>>(new Map());
 
-  // 拼接全文：每节标题 + 内容 + （如有）讲解词
+  // 拼接全文：每节标题 + 内容
   const fullText = sections.map(s => {
     const head = `第 ${s.index} 节，${s.title}。`;
     const body = (s.content || '').trim();
@@ -180,6 +184,68 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
   }).join('\n');
 
   const chunks = splitIntoChunks(fullText);
+
+  // SessionStorage key 生成（课件固定，idx 固定，文本不变）
+  const cacheKey = (idx: number) => `tts:${coursewareId}:${idx}`;
+
+  // 从 SessionStorage 读缓存
+  const readCache = (idx: number): string | null => {
+    try { return sessionStorage.getItem(cacheKey(idx)); } catch { return null; }
+  };
+
+  // 写入 SessionStorage（Base64 太大时可能 QuotaExceeded，静默忽略）
+  const writeCache = (idx: number, b64: string) => {
+    try { sessionStorage.setItem(cacheKey(idx), b64); } catch { /* ignore quota error */ }
+  };
+
+  // 发起单段 TTS 请求，返回 base64 或 null
+  // 缓存优先级：内存 prefetchCache（Promise去重）→ SessionStorage（会话内）→ 服务端磁盘缓存 → 豆包 API
+  const fetchAudio = (idx: number): Promise<string | null> => {
+    // 已有 in-flight 或 resolved Promise，直接返回，不重复发请求
+    const existing = prefetchCache.current.get(idx);
+    if (existing) return existing;
+
+    const p = (async (): Promise<string | null> => {
+      // 先查 SessionStorage（命中则无需任何网络请求）
+      const cached = readCache(idx);
+      if (cached) return cached;
+
+      try {
+        const resp = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // coursewareId + chunkIdx 供后端磁盘缓存匹配；
+          // 命中时后端直接返回文件，不调豆包 API
+          body: JSON.stringify({ text: chunks[idx], coursewareId, chunkIdx: idx }),
+        });
+        const data = await resp.json();
+        if (data.success && data.audio) {
+          // 写入 SessionStorage，同会话内下次直接读取，无需再走网络
+          writeCache(idx, data.audio);
+          return data.audio;
+        }
+        // fallback 标记（Web Speech）用 null 表示需要前端朗读
+        if (data.fallback) return null;
+        return null;
+      } catch {
+        return null;
+      }
+    })();
+
+    prefetchCache.current.set(idx, p);
+    return p;
+  };
+
+  // 预取接下来 LOOKAHEAD 段（不阻塞）
+  const LOOKAHEAD = 2;
+  const prefetch = (fromIdx: number) => {
+    for (let i = fromIdx + 1; i <= Math.min(fromIdx + LOOKAHEAD, chunks.length - 1); i++) {
+      if (!prefetchCache.current.has(i)) {
+        setPrefetchingCount(c => c + 1);
+        fetchAudio(i).finally(() => setPrefetchingCount(c => Math.max(0, c - 1)));
+      }
+    }
+  };
 
   const stop = useCallback(() => {
     stopRef.current = true;
@@ -196,50 +262,52 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     setLoading(false);
   }, []);
 
-  const fetchAndPlayChunk = async (idx: number): Promise<boolean> => {
+  // 播放单段：优先用缓存（几乎无延迟），预取下几段，fallback 降级
+  const playChunk = async (idx: number): Promise<boolean> => {
     if (idx >= chunks.length || stopRef.current) return false;
     setChunkIdx(idx);
-    setLoading(true);
-    try {
-      const resp = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chunks[idx] }),
-      });
-      const data = await resp.json();
-      setLoading(false);
-      if (stopRef.current) return false;
 
-      if (data.success && data.audio) {
-        // 火山 TTS 成功
-        const audio = audioRef.current || new Audio();
-        audioRef.current = audio;
-        audio.src = `data:audio/mp3;base64,${data.audio}`;
+    // 触发预取（非阻塞）
+    prefetch(idx);
+
+    // 等待当前段音频（命中缓存则立即返回）
+    const firstChunkLoading = !prefetchCache.current.has(idx);
+    if (firstChunkLoading) setLoading(true);
+
+    const b64 = await fetchAudio(idx);
+    setLoading(false);
+    if (stopRef.current) return false;
+
+    if (b64) {
+      // 豆包 TTS 成功（缓存命中或新请求）
+      const audio = audioRef.current || new Audio();
+      audioRef.current = audio;
+      audio.src = `data:audio/mp3;base64,${b64}`;
+      try {
         await audio.play();
-        return new Promise((resolve) => {
-          audio.onended = () => resolve(true);
-          audio.onerror = () => resolve(false);
-        });
+      } catch {
+        return false;
       }
-
-      // 服务端 fallback：使用浏览器 Web Speech API
-      if (data.fallback && 'speechSynthesis' in window) {
-        return new Promise((resolve) => {
-          const utter = new SpeechSynthesisUtterance(chunks[idx]);
-          utter.lang = 'zh-CN';
-          utter.rate = 1.0;
-          utter.onend = () => resolve(true);
-          utter.onerror = () => resolve(false);
-          window.speechSynthesis.speak(utter);
-        });
-      }
-
-      throw new Error(data.error || 'TTS 服务异常');
-    } catch (e: any) {
-      setLoading(false);
-      setErrMsg(e.message || 'TTS 失败');
-      return false;
+      return new Promise((resolve) => {
+        audio.onended = () => resolve(true);
+        audio.onerror = () => resolve(false);
+      });
     }
+
+    // fallback：浏览器 Web Speech API
+    if ('speechSynthesis' in window) {
+      return new Promise((resolve) => {
+        const utter = new SpeechSynthesisUtterance(chunks[idx]);
+        utter.lang = 'zh-CN';
+        utter.rate = 1.0;
+        utter.onend = () => resolve(true);
+        utter.onerror = () => resolve(false);
+        window.speechSynthesis.speak(utter);
+      });
+    }
+
+    setErrMsg('TTS 服务暂不可用');
+    return false;
   };
 
   const startPlayAll = async () => {
@@ -248,17 +316,17 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     setPlaying(true);
     setPaused(false);
     stopRef.current = false;
+    // 预取前两段（点击时立即开始缓存，不等播完第一段）
+    prefetch(-1);
+
     for (let i = 0; i < chunks.length; i++) {
       if (stopRef.current) break;
-      const ok = await fetchAndPlayChunk(i);
-      // 任意一段成功播放即标记已学；失败不阻塞播放，下一段仍会重试
+      const ok = await playChunk(i);
       if (ok && !markedRef.current) {
         try {
           const r = await fetch(`/api/classroom/${coursewareId}/mark-studied`, { method: 'POST' });
           if (r.ok) markedRef.current = true;
-        } catch {
-          // 网络异常：保持 markedRef=false，下一段成功时再次尝试
-        }
+        } catch { /* 网络异常，下段重试 */ }
       }
       if (!ok || stopRef.current) break;
     }
@@ -277,10 +345,14 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     }
   };
 
-  // 离开页面时停止
+  // 离开页面时停止（prefetchCache 跟随组件生命周期自动销毁）
   useEffect(() => {
     return () => { stop(); };
   }, [stop]);
+
+  const cachedCount = chunks.length > 0
+    ? chunks.filter((_, i) => !!readCache(i)).length
+    : 0;
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3 flex-wrap">
@@ -310,9 +382,18 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
             <Square className="w-3.5 h-3.5" />停止
           </button>
           <span className="text-xs text-amber-700">
-            {loading ? '加载音频...' : `第 ${chunkIdx + 1}/${chunks.length} 段`}
+            {loading ? '合成音频...' : `第 ${chunkIdx + 1}/${chunks.length} 段`}
+            {prefetchingCount > 0 && !loading && (
+              <span className="ml-1 text-amber-500">（预取中）</span>
+            )}
           </span>
         </>
+      )}
+      {/* 已缓存提示：再次播放时显示，表示无需重新请求 */}
+      {!playing && cachedCount > 0 && (
+        <span className="text-xs text-green-600">
+          ✓ {cachedCount}/{chunks.length} 段已缓存
+        </span>
       )}
       {errMsg && <span className="text-xs text-red-600">⚠ {errMsg}</span>}
     </div>

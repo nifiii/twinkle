@@ -28,8 +28,6 @@ dist-ssr
 .env.production
 
 # Docker volumes
-anythingllm-storage/
-anythingllm-hotdir/
 ssl/
 
 # Editor directories and files
