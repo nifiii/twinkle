@@ -242,4 +242,48 @@ router.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// POST /api/tts/merge
+// 将已缓存的所有分片 MP3 合并为单个 complete.mp3，供后续整段播放使用
+// MP3 是帧式格式，同码率（24kHz）直接二进制拼接产生合法 MP3 文件
+router.post('/tts/merge', (req: Request, res: Response) => {
+  const { coursewareId, totalChunks } = req.body;
+
+  if (!coursewareId || typeof coursewareId !== 'string' ||
+      typeof totalChunks !== 'number' || totalChunks <= 0) {
+    return res.status(400).json({ success: false, error: '参数错误：需要 coursewareId 和 totalChunks' });
+  }
+
+  const cacheDir = path.join(TTS_CACHE_DIR, coursewareId);
+  const completeFile = path.join(cacheDir, 'complete.mp3');
+
+  // 已合并过，直接返回（幂等）
+  if (fs.existsSync(completeFile)) {
+    return res.json({ success: true, alreadyExists: true });
+  }
+
+  // 检查所有分片是否已到齐
+  const buffers: Buffer[] = [];
+  for (let i = 0; i < totalChunks; i++) {
+    const chunkFile = path.join(cacheDir, `${i}.mp3`);
+    if (!fs.existsSync(chunkFile)) {
+      return res.status(409).json({
+        success: false,
+        error: `分片 ${i} 尚未缓存，合并中止`,
+        missingChunk: i
+      });
+    }
+    buffers.push(fs.readFileSync(chunkFile));
+  }
+
+  try {
+    const merged = Buffer.concat(buffers);
+    fs.writeFileSync(completeFile, merged);
+    console.log(`[TTS] complete.mp3 合并完成 coursewareId=${coursewareId} chunks=${totalChunks} size=${merged.length}B`);
+    return res.json({ success: true });
+  } catch (e: any) {
+    console.error('[TTS] 合并写入失败:', e.message);
+    return res.status(500).json({ success: false, error: '合并写入失败' });
+  }
+});
+
 export default router;

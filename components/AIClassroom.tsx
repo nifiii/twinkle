@@ -168,75 +168,72 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
   const [chunkIdx, setChunkIdx] = useState(0);
   const [loading, setLoading] = useState(false);
   const [prefetchingCount, setPrefetchingCount] = useState(0);
+  // complete.mp3 是否已在服务端存在（挂载时检查 + 合并成功后更新）
+  const [hasComplete, setHasComplete] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopRef = useRef(false);
   const markedRef = useRef(false);
-  // 内存预取缓存：key=idx，value=Promise<string|null>（base64 或 null=失败）
-  // 用 Promise 而非结果值，保证同 idx 不发起重复请求（并发安全）
+  // 内存 Promise 去重：同 idx 只发一次 API 请求
   const prefetchCache = useRef<Map<number, Promise<string | null>>>(new Map());
 
-  // 拼接全文：每节标题 + 内容
+  // 拼接全文
   const fullText = sections.map(s => {
     const head = `第 ${s.index} 节，${s.title}。`;
     const body = (s.content || '').trim();
     return head + body;
   }).join('\n');
-
   const chunks = splitIntoChunks(fullText);
 
-  // SessionStorage key 生成（课件固定，idx 固定，文本不变）
-  const cacheKey = (idx: number) => `tts:${coursewareId}:${idx}`;
+  // 完整音频文件的 URL（由静态文件中间件直接服务，无需 base64）
+  const completeAudioUrl = `/data/tts_cache/${coursewareId}/complete.mp3`;
 
-  // 从 SessionStorage 读缓存
+  // 挂载时检查 complete.mp3 是否已存在
+  useEffect(() => {
+    if (!coursewareId) return;
+    fetch(completeAudioUrl, { method: 'HEAD' })
+      .then(r => setHasComplete(r.ok))
+      .catch(() => setHasComplete(false));
+  }, [coursewareId, completeAudioUrl]);
+
+  // SessionStorage 缓存（会话内免网络）
+  const cacheKey = (idx: number) => `tts:${coursewareId}:${idx}`;
   const readCache = (idx: number): string | null => {
     try { return sessionStorage.getItem(cacheKey(idx)); } catch { return null; }
   };
-
-  // 写入 SessionStorage（Base64 太大时可能 QuotaExceeded，静默忽略）
   const writeCache = (idx: number, b64: string) => {
-    try { sessionStorage.setItem(cacheKey(idx), b64); } catch { /* ignore quota error */ }
+    try { sessionStorage.setItem(cacheKey(idx), b64); } catch { /* QuotaExceeded: ignore */ }
   };
 
-  // 发起单段 TTS 请求，返回 base64 或 null
-  // 缓存优先级：内存 prefetchCache（Promise去重）→ SessionStorage（会话内）→ 服务端磁盘缓存 → 豆包 API
+  // 单段 TTS 请求（三层缓存：内存 Promise → SessionStorage → 服务端磁盘 → 豆包 API）
   const fetchAudio = (idx: number): Promise<string | null> => {
-    // 已有 in-flight 或 resolved Promise，直接返回，不重复发请求
     const existing = prefetchCache.current.get(idx);
     if (existing) return existing;
 
     const p = (async (): Promise<string | null> => {
-      // 先查 SessionStorage（命中则无需任何网络请求）
       const cached = readCache(idx);
       if (cached) return cached;
-
       try {
         const resp = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // coursewareId + chunkIdx 供后端磁盘缓存匹配；
-          // 命中时后端直接返回文件，不调豆包 API
           body: JSON.stringify({ text: chunks[idx], coursewareId, chunkIdx: idx }),
         });
         const data = await resp.json();
         if (data.success && data.audio) {
-          // 写入 SessionStorage，同会话内下次直接读取，无需再走网络
           writeCache(idx, data.audio);
           return data.audio;
         }
-        // fallback 标记（Web Speech）用 null 表示需要前端朗读
         if (data.fallback) return null;
         return null;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     })();
 
     prefetchCache.current.set(idx, p);
     return p;
   };
 
-  // 预取接下来 LOOKAHEAD 段（不阻塞）
+  // 预取接下来 LOOKAHEAD 段（非阻塞，保证段间无等待）
   const LOOKAHEAD = 2;
   const prefetch = (fromIdx: number) => {
     for (let i = fromIdx + 1; i <= Math.min(fromIdx + LOOKAHEAD, chunks.length - 1); i++) {
@@ -245,6 +242,29 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
         fetchAudio(i).finally(() => setPrefetchingCount(c => Math.max(0, c - 1)));
       }
     }
+  };
+
+  // 后台任务：串行拉取所有分片 → 全部到齐后通知后端合并为 complete.mp3
+  // 与播放循环并行运行，不阻塞播放
+  const prefetchAllAndMerge = async () => {
+    for (let i = 0; i < chunks.length; i++) {
+      await fetchAudio(i);                               // 命中缓存时立即返回
+      if (i < chunks.length - 1) {
+        await new Promise(r => setTimeout(r, 400));      // 避免并发过多触发 API 限流
+      }
+    }
+    // 所有分片已在磁盘，触发服务端合并
+    try {
+      const r = await fetch('/api/tts/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coursewareId, totalChunks: chunks.length }),
+      });
+      if (r.ok) {
+        setHasComplete(true);
+        console.log(`[TTS] ${coursewareId} 完整音频合并完成，下次播放将使用单文件`);
+      }
+    } catch { /* 合并失败不影响当前播放，下次重试 */ }
   };
 
   const stop = useCallback(() => {
@@ -262,41 +282,32 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     setLoading(false);
   }, []);
 
-  // 播放单段：优先用缓存（几乎无延迟），预取下几段，fallback 降级
+  // 播放单段（LOOKAHEAD + 缓存命中）
   const playChunk = async (idx: number): Promise<boolean> => {
     if (idx >= chunks.length || stopRef.current) return false;
     setChunkIdx(idx);
-
-    // 触发预取（非阻塞）
     prefetch(idx);
 
-    // 等待当前段音频（命中缓存则立即返回）
-    const firstChunkLoading = !prefetchCache.current.has(idx);
-    if (firstChunkLoading) setLoading(true);
-
+    const needsFetch = !prefetchCache.current.has(idx);
+    if (needsFetch) setLoading(true);
     const b64 = await fetchAudio(idx);
     setLoading(false);
     if (stopRef.current) return false;
 
     if (b64) {
-      // 豆包 TTS 成功（缓存命中或新请求）
       const audio = audioRef.current || new Audio();
       audioRef.current = audio;
       audio.src = `data:audio/mp3;base64,${b64}`;
-      try {
-        await audio.play();
-      } catch {
-        return false;
-      }
-      return new Promise((resolve) => {
+      try { await audio.play(); } catch { return false; }
+      return new Promise(resolve => {
         audio.onended = () => resolve(true);
         audio.onerror = () => resolve(false);
       });
     }
 
-    // fallback：浏览器 Web Speech API
+    // fallback: 浏览器 Web Speech API
     if ('speechSynthesis' in window) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const utter = new SpeechSynthesisUtterance(chunks[idx]);
         utter.lang = 'zh-CN';
         utter.rate = 1.0;
@@ -310,24 +321,48 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     return false;
   };
 
+  const markStudied = async () => {
+    if (markedRef.current) return;
+    try {
+      const r = await fetch(`/api/classroom/${coursewareId}/mark-studied`, { method: 'POST' });
+      if (r.ok) markedRef.current = true;
+    } catch { /* 网络异常，不影响播放 */ }
+  };
+
   const startPlayAll = async () => {
     if (chunks.length === 0) return;
     setErrMsg('');
     setPlaying(true);
     setPaused(false);
     stopRef.current = false;
-    // 预取前两段（点击时立即开始缓存，不等播完第一段）
+
+    // ── 单文件模式（complete.mp3 已存在）──────────────────────
+    // 直接用 HTTP URL 播放，浏览器原生缓冲，无任何分段切换
+    if (hasComplete) {
+      const audio = audioRef.current || new Audio();
+      audioRef.current = audio;
+      audio.src = completeAudioUrl;
+      setChunkIdx(0);
+      try { await audio.play(); } catch { setPlaying(false); return; }
+      await new Promise<void>(resolve => {
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+      });
+      if (!stopRef.current) await markStudied();
+      setPlaying(false);
+      setChunkIdx(0);
+      return;
+    }
+
+    // ── 分段模式（首次播放）──────────────────────────────────
+    // LOOKAHEAD 保证低延迟；同时后台静默拉取全部分片并合并
     prefetch(-1);
+    prefetchAllAndMerge(); // fire-and-forget，不阻塞播放
 
     for (let i = 0; i < chunks.length; i++) {
       if (stopRef.current) break;
       const ok = await playChunk(i);
-      if (ok && !markedRef.current) {
-        try {
-          const r = await fetch(`/api/classroom/${coursewareId}/mark-studied`, { method: 'POST' });
-          if (r.ok) markedRef.current = true;
-        } catch { /* 网络异常，下段重试 */ }
-      }
+      if (ok) await markStudied();
       if (!ok || stopRef.current) break;
     }
     setPlaying(false);
@@ -345,14 +380,13 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     }
   };
 
-  // 离开页面时停止（prefetchCache 跟随组件生命周期自动销毁）
+  // 离开页面时停止
   useEffect(() => {
     return () => { stop(); };
   }, [stop]);
 
-  const cachedCount = chunks.length > 0
-    ? chunks.filter((_, i) => !!readCache(i)).length
-    : 0;
+  // 未播放时的缓存状态指示
+  const sessionCachedCount = chunks.filter((_, i) => !!readCache(i)).length;
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3 flex-wrap">
@@ -365,7 +399,8 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
           onClick={startPlayAll}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-xs font-medium"
         >
-          <Play className="w-3.5 h-3.5" />全文连播（{chunks.length} 段）
+          <Play className="w-3.5 h-3.5" />
+          {hasComplete ? '全文连播' : `全文连播（${chunks.length} 段）`}
         </button>
       ) : (
         <>
@@ -382,18 +417,22 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
             <Square className="w-3.5 h-3.5" />停止
           </button>
           <span className="text-xs text-amber-700">
-            {loading ? '合成音频...' : `第 ${chunkIdx + 1}/${chunks.length} 段`}
-            {prefetchingCount > 0 && !loading && (
-              <span className="ml-1 text-amber-500">（预取中）</span>
+            {hasComplete
+              ? '完整音频播放中'
+              : loading ? '合成音频...' : `第 ${chunkIdx + 1}/${chunks.length} 段`
+            }
+            {!hasComplete && prefetchingCount > 0 && !loading && (
+              <span className="ml-1 text-amber-500">（后台缓存中）</span>
             )}
           </span>
         </>
       )}
-      {/* 已缓存提示：再次播放时显示，表示无需重新请求 */}
-      {!playing && cachedCount > 0 && (
-        <span className="text-xs text-green-600">
-          ✓ {cachedCount}/{chunks.length} 段已缓存
-        </span>
+      {/* 缓存状态提示 */}
+      {!playing && hasComplete && (
+        <span className="text-xs text-green-600">✓ 完整音频已缓存</span>
+      )}
+      {!playing && !hasComplete && sessionCachedCount > 0 && (
+        <span className="text-xs text-green-600">✓ {sessionCachedCount}/{chunks.length} 段已缓存</span>
       )}
       {errMsg && <span className="text-xs text-red-600">⚠ {errMsg}</span>}
     </div>
