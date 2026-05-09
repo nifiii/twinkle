@@ -279,7 +279,7 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     audio.src = objectUrl;
 
     await new Promise<void>(resolve =>
-      mediaSource.addEventListener('sourceopen', resolve, { once: true })
+      mediaSource.addEventListener('sourceopen', () => resolve(), { once: true })
     );
 
     let sb: SourceBuffer;
