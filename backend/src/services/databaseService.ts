@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { normalizeSubject } from '../utils/subject.js';
 
-const DATA_DIR = process.env.DATA_DIR || '/opt/hl-os/data';
+const DATA_DIR = process.env.DATA_DIR || '/opt/twinkle/data';
 const DB_PATH = path.join(DATA_DIR, 'hlos.db');
 
 // 确保目录存在

@@ -6,7 +6,7 @@ import db from '../services/databaseService.js';
 import { normalizeSubject } from '../utils/subject.js';
 
 // OCR 调试目录:parse 失败时落盘完整 raw,自动保留 7 天。
-const OCR_DEBUG_DIR = path.join(process.env.DATA_DIR || '/opt/hl-os/data', 'ocr-debug');
+const OCR_DEBUG_DIR = path.join(process.env.DATA_DIR || '/opt/twinkle/data', 'ocr-debug');
 function dumpFailedRaw(taskId: string, raw: string, mainErr: string, fallbackErr: string): void {
   try {
     if (!fs.existsSync(OCR_DEBUG_DIR)) fs.mkdirSync(OCR_DEBUG_DIR, { recursive: true });

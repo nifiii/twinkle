@@ -113,14 +113,14 @@ export interface EBook {
     publisher?: number;
     publishDate?: number;
   };
-  extractionMethod?: 'gemini' | 'anythingllm' | 'manual';  // 提取方式
+  extractionMethod?: 'doubao' | 'manual' | 'gemini' | 'anythingllm';  // 提取方式（gemini/anythingllm 为历史兼容值）
 
   // 章节目录（AI提取）
   tableOfContents: ChapterNode[];
 
-  // AnythingLLM 状态
+  // 书籍索引状态（兼容字段，当前 RAG 功能未启用；indexStatus 仍用于前端 UI 展示）
   indexStatus: IndexStatus;
-  anythingLlmDocId?: string;
+  anythingLlmDocId?: string;  // 历史兼容字段，当前未使用
   fileHash?: string;  // 文件哈希值 (用于查重)
   mdPath?: string;    // Markdown 文件路径
 }

@@ -53,7 +53,7 @@ app.use((req, res, next) => {
 // 1. 上传的临时文件
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // 2. 数据目录 (用于 serving 封面等)
-const DATA_DIR = process.env.DATA_DIR || '/opt/hl-os/data';
+const DATA_DIR = process.env.DATA_DIR || '/opt/twinkle/data';
 app.use('/covers', express.static(path.join(DATA_DIR, 'obsidian', 'covers')));
 app.use('/data', express.static(DATA_DIR)); // 直接映射整个 data 目录供前端访问
 // app.use('/data/images', express.static(path.join(DATA_DIR, 'originals', 'images'))); // 移除冗余配置

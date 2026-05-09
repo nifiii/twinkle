@@ -9,7 +9,7 @@ import db from './databaseService.js';
  */
 
 // 基础路径配置
-const BASE_DIR = process.env.DATA_DIR || '/opt/hl-os/data';
+const BASE_DIR = process.env.DATA_DIR || '/opt/twinkle/data';
 const OBSIDIAN_DIR = path.join(BASE_DIR, 'obsidian');
 const ORIGINALS_DIR = path.join(BASE_DIR, 'originals');
 const METADATA_FILE = path.join(BASE_DIR, 'metadata.json');

@@ -1,7 +1,7 @@
 # 闪闪 技术架构文档
 
-**版本**: v1.2.0
-**最后更新**: 2026-01-21
+**版本**: v2.0.0
+**最后更新**: 2026-05-09
 
 ---
 
@@ -12,6 +12,7 @@
 - [3. 数据模型](#3-数据模型)
 - [4. API设计](#4-api设计)
 - [5. 部署架构](#5-部署架构)
+- [6. 图书元数据提取流程](#6-图书元数据提取流程)
 
 ---
 
@@ -20,91 +21,75 @@
 ### 1.1 整体架构图
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     浏览器 (Browser)                         │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │           Vite + React 18 + TypeScript                 │  │
-│  │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐  │  │
-│  │  │Dashboard│ Resources │ Tutor                │  │  │
-│  │  └─────────┴─────────┴─────────┴─────────┴─────────┘  │  │
-│  │  ┌──────────��────────────────────────────────────────┐  │  │
-│  │  │    API Service Layer (apiService.ts)             │  │  │
-│  │  │    - fetchBooks()                                │  │  │
-│  │  │    - fetchScannedItems()                         │  │  │
-│  │  │    - saveScannedItemToServer()                   │  │  │
-│  │  │    - saveBookToServer()                          │  │  │
-│  │  └───────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                            │ HTTPS/API
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Nginx (Reverse Proxy)                       │
-│           :80/:443 → 后端 :3000                                │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                             │
-                             ▼
-┌──────────────────┐
-│  Node.js Backend │
-│  Express.js      │
-│  :3000           │
-└─────────┬────────┘
-         │
-         ├───► [Doubao Service] (元数据/Markdown)
-         │
-         ▼
-┌──────────────────────────────────────────────────┐
-│     服务端文件系统 (/opt/hl-os/data/)            │
-│  ├─ obsidian/          (Obsidian Markdown)       │
-│  │  ├─ Wrong_Problems/  (错题本)                │
-│  │  ├─ No_Problems/     (试卷作业)              │
-│  │  ├─ Courses/         (课件测验)              │
-│  │  └─ Books/           (电子书全文)            │
-│  ├─ originals/         (原始文件)                │
-│  │  ├─ images/          (原始图片)              │
-│  │  ├─ books/           (电子教材)              │
-│  │  └─ covers/          (图书封面)              │
-│  └─ metadata.json      (元数据索引)             │
-└──────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────┐
-│           AI Services API                        │
-│  - Doubao-seed-1-8-251228 (图像分析/课件/元数据)  │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      浏览器 (Browser)                         │
+│  React 18 + TypeScript + Vite + Tailwind CSS + Framer Motion │
+│                                                              │
+│  3个顶级 Tab:                                                │
+│  ┌────────────┬──────────────────────┬────────────────────┐  │
+│  │ Dashboard  │ Resources            │ Tutor (AI课堂)     │  │
+│  │            │  └─ 我的书架         │  └─ 课程学习       │  │
+│  │            │  └─ 错题本           │  └─ 错题讲解       │  │
+│  │            │  └─ 学习小助手       │  └─ 历史记录       │  │
+│  └────────────┴──────────────────────┴────────────────────┘  │
+│                   API Service Layer (fetch /api/*)            │
+└──────────────────────────────────────────────────────────────┘
+                          │ HTTP/HTTPS
+                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   Nginx (宿主反向代理)                        │
+│                :80 / :443 → 容器 :3000                       │
+└──────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Docker 容器: twinkle                             │
+│  Node.js 20 + Express.js                                     │
+│  ├─ 静态文件服务 (React 构建产物 /public)                    │
+│  ├─ API 路由 (/api/*)                                        │
+│  └─ better-sqlite3 (SQLite 数据库)                           │
+└──────────────────────────────────────────────────────────────┘
+          │ 数据挂载 /opt/twinkle/data
+          ▼
+┌──────────────────────────────────────────────────────────────┐
+│           宿主持久化目录: /opt/twinkle/data/                 │
+│  ├─ hlos.db              (SQLite 数据库主文件)              │
+│  ├─ obsidian/covers/     (图书封面缩略图)                   │
+│  ├─ originals/books/     (原始 PDF/EPUB/TXT)               │
+│  └─ originals/images/    (拍题原始图片)                    │
+└──────────────────────────────────────────────────────────────┘
+          │ HTTPS API 调用
+          ▼
+┌──────────────────────────────────────────────────────────────┐
+│               火山引擎 (Volcengine) 外部服务                  │
+│  ├─ Doubao 文本模型 (ARK_MODEL_ID)   — 课件/测验/元数据      │
+│  ├─ Doubao 视觉模型 (ARK_VISION_MODEL_ID) — OCR 图像分析    │
+│  └─ Doubao TTS (VOLCANO_TTS_*)       — 课件语音朗读          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 三层存储架构
+### 1.2 数据存储架构
+
+项目使用 **单一 SQLite 数据库** 存储所有结构化数据，文件系统仅用于存放原始二进制文件（图片、PDF）和生成的 Markdown 文件。
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  层级1: AnythingLLM (向量数据库 - 热数据/可搜索)          │
-│  ├─ LanceDB 向量存储 (嵌入容器内)                        │
-│  ├─ Gemini text-embedding-004 向量化                    │
-│  ├─ 存储: 文本内容 + 元数据(含文件路径链接)              │
-│  └─ 用途: RAG检索、语义搜索                              │
-└─────────────────────────────────────────────────────────┘
-                      ↓ 元数据包含文件路径
-┌─────────────────────────────────────────────────────────┐
-│  层级2: Obsidian文件夹 (结构化内容/永久存储)              │
-│  ├─ Wrong_Problems/    (错题本 Markdown)                │
-│  ├─ No_Problems/       (试卷&作业 Markdown)             │
-│  └─ Courses/           (课件&测验 Markdown)             │
-│  路径: /opt/hl-os/data/obsidian/                         │
-└─────────────────────────────────────────────────────────┘
+SQLite: /opt/twinkle/data/hlos.db
+  ├─ users              (用户档案：姓名/头像/年级/生日)
+  ├─ books              (图书元数据：标题/学科/年级/目录)
+  ├─ scanned_items      (拍题归档：OCR结果/题目结构化数据)
+  ├─ classroom_items    (AI课堂条目：课件slides/测验questions)
+  ├─ quiz_results       (测验结果归档：得分/批改详情/AI建议)
+  ├─ wrong_problem_quiz_links  (错题→课件/测验关联)
+  └─ analyze_tasks      (拍题异步任务状态跟踪)
 
-┌─────────────────────────────────────────────────────────┐
-│  层级3: 原始文件目录 (原始资源/存证备份)                   │
-│  ├─ images/  (原始图片 - 按月归档)                       │
-│  └─ books/   (电子教材 PDF/EPUB/TXT)                    │
-│  路径: /opt/hl-os/data/originals/                        │
-└─────────────────────────────────────────────────────────┘
+文件系统: /opt/twinkle/data/
+  ├─ obsidian/covers/   封面 .jpg 缩略图 (PDF 第一页截图)
+  ├─ originals/books/   原始教材文件
+  ├─ originals/images/  拍题原始图片
+  └─ obsidian/Wrong_Problems/  错题 Markdown 文件
 ```
 
-**数据流向**：
-1. 用户上传 → 后端保存原始文件到 `originals/` + Obsidian Markdown到 `obsidian/`
-2. 前端通过 API 直接请求后端读取 Markdown/PDF 内容
+> ⚠️ 项目**不使用** AnythingLLM、向量数据库（RAG），也不依赖 Gemini。所有 AI 能力均通过火山引擎豆包 API 提供。
 
 ---
 
@@ -112,419 +97,272 @@
 
 ### 2.1 前端技术栈
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **React** | 18.2.0 | UI框架，函数式组件 + Hooks |
-| **TypeScript** | 5.6.3 | 类型安全，ES2020目标 |
-| **Vite** | 5.0.8 | 构建工具，开发服务器 (HMR) |
-| **Tailwind CSS** | 3.4.1 | 原子化样式系统 |
-| **Framer Motion** | 12.27.1 | 声明式动画库 |
-| **Lucide React** | 0.263.1 | 图标库 (2000+ SVG图标) |
-| **React Markdown** | 8.0.7 | Markdown渲染 (课件/试卷) |
-| **Canvas Confetti** | 1.9.4 | 庆祝动画效果 |
-| **API Service Layer** | 自定义 | 服务端API调用封装 (apiService.ts) |
+| 技术 | 用途 |
+|------|------|
+| **React 18** | UI框架，函数式组件 + Hooks |
+| **TypeScript** | 类型安全 |
+| **Vite** | 构建工具，开发服务器 (HMR) |
+| **Tailwind CSS** | 原子化样式系统 |
+| **Framer Motion** | 页面切换/卡片动画 |
+| **Lucide React** | SVG 图标库 |
+| **Canvas Confetti** | OCR完成时的庆祝动画 |
+
+**路由方案**：Hash 路由（无框架），协议如下：
+```
+#dashboard
+#resources/<library|capture|workshop>
+#tutor/<courseware|wrong|history>/<item-id>
+```
 
 ### 2.2 后端技术栈
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Node.js** | 20.x | 运行时环境 |
-| **Express.js** | 4.21.2 | RESTful API框架 |
-| **TypeScript** | 5.7.2 | 后端类型安全 |
-| **openai** | 4.x | Doubao API 客户端 (兼容层) |
-| **pdf-img-convert** | 1.x | PDF 封面提取 (无依赖) |
-| **Multer** | 1.4.5-lts.1 | 文件上传中间件 (100MB限制) |
-| **pdf-parse** | 1.1.1 | PDF文本提取 |
-| **epub2** | 3.0.2 | EPUB电子书解析 |
-| **cors** | 2.8.5 | 跨域资源共享 |
-| **fileStorage.ts** | 自定义 | 文件系统服务 (Obsidian + originals) |
+| 技术 | 用途 |
+|------|------|
+| **Node.js 20** | 运行时 |
+| **Express.js** | RESTful API 框架 |
+| **TypeScript** | 后端类型安全 |
+| **better-sqlite3** | SQLite 数据库（同步 API，性能好） |
+| **openai (SDK)** | 调用豆包 API（兼容 OpenAI 协议）|
+| **pdf-parse / pdfjs-dist** | PDF 文本提取 |
+| **epub2** | EPUB 格式解析 |
+| **Multer** | 文件上传中间件 (100MB 限制) |
+| **poppler-utils (pdftoppm)** | PDF → 图片（封面提取、扫描版OCR）|
 
-### 2.3 外部服务集成
+### 2.3 外部服务
 
-| 服务 | 用途 | 配置 |
-|------|------|------|
-| **ByteDance Doubao API** | 中文元数据/Markdown转换 | ARK_API_KEY, ARK_MODEL_ID |
+| 服务 | 环境变量 | 用途 |
+|------|----------|------|
+| 豆包文本模型 | `ARK_API_KEY` + `ARK_MODEL_ID` | 课件生成、测验出题、元数据提取、Markdown 转换 |
+| 豆包视觉模型 | `ARK_VISION_MODEL_ID` | 拍题 OCR 图像识别（4层解构）|
+| 豆包 TTS | `VOLCANO_TTS_*` | 课件全文语音朗读（分段串行播放）|
+
+> TTS 降级策略：豆包 TTS 失败时自动回退到浏览器内置 Web Speech API（`zh-CN`）。
 
 ---
 
 ## 3. 数据模型
 
-### 3.1 核心类型定义
+### 3.1 核心 TypeScript 类型
 
-#### UserProfile (用户档案)
+#### UserProfile（用户档案）
 ```typescript
 interface UserProfile {
-  id: string;              // 'child_1' | 'child_2' | 'shared'
-  name: string;            // '大宝' | '二宝'
-  avatar: string;          // 头像URL或Emoji
-  grade: string;           // '高中二年级' | '初中一年级'
+  id: string;          // 'child_1' | 'child_2'（数据库主键）
+  name: string;        // '大宝' | '二宝'
+  avatar: string;      // Emoji，如 '👦' '👧'
+  grade: string;       // 后端根据 birthDate/baseGrade 推算，如 '小学五年级'
+  birthDate?: string;  // YYYY-MM
+  baseGrade?: number;  // 1-12，手动覆写年级时存储
 }
 ```
 
-#### ScannedItem (扫描项)
+#### ScannedItem（拍题归档）
 ```typescript
 interface ScannedItem {
-  id: string;                          // UUID
-  ownerId: string;                     // 'child_1' | 'child_2' | 'shared'
-  timestamp: number;                   // Unix时间戳
-  imageUrl: string;                    // base64 或 URL
-  rawMarkdown: string;                 // AI生成的Markdown文本
-  meta: StructuredMetaData;            // 结构化元数据
-  status: ProcessingStatus;            // 处理状态
-
-  // 多页试卷关联字段
-  parentExamId?: string;               // 父试卷ID（多页共享）
-  pageNumber?: number;                 // 当前页码（从1开始）
-  totalPages?: number;                 // 总页数
-  multiPageSource?: boolean;           // 是否来自多页试卷
+  id: string;
+  ownerId: string;           // 数据隔离键
+  timestamp: number;
+  imageUrl: string;          // 原始图片路径
+  rawMarkdown: string;       // AI OCR 生成的 Markdown
+  meta: StructuredMetaData;  // 结构化元数据 + 题目数组
+  status: ProcessingStatus;
+  parentExamId?: string;     // 多页试卷关联
+  pageNumber?: number;
+  totalPages?: number;
 }
 ```
 
-#### StructuredMetaData (AI解析元数据)
-```typescript
-interface StructuredMetaData {
-  type: DocType;                       // 文档类型枚举
-  subject: string;                     // '数学' | '语文' | '英语' | '物理' ...
-  chapter_hint?: string;               // 章节提示 (AI推测)
-  knowledge_status?: '已经掌握' | '未掌握' | '需加强';
-  frontmatter?: string;                // Obsidian YAML前置
-  problems?: ProblemUnit[];            // 题目数组
-}
-```
-
-#### ProblemUnit (题目单元)
-```typescript
-interface ProblemUnit {
-  id: string;                          // UUID
-  questionNumber: string;              // '1' | '(1)' | 'a)'
-  content: string;                     // 题目文本 (可含LaTeX)
-  studentAnswer: string;               // 学生答案
-  teacherComment: string;              // 教师批注
-  status: ProblemStatus;               // 'CORRECT' | 'WRONG' | 'CORRECTED'
-}
-```
-
-#### EBook (电子教材)
+#### EBook（图书）
 ```typescript
 interface EBook {
   id: string;
   title: string;
-  author?: string;
-  fileFormat: 'pdf' | 'epub' | 'txt';
-  fileSize: number;                    // 字节数
-  uploadedAt: number;                  // Unix时间戳
-  ownerId: string;
-
-  // AI提取的元数据
-  subject: string;
-  category: string;                    // '教材' | '参考书' | '习题集'
+  subject: string;           // '数学' | '语文' | ...
+  category: string;          // '教材' | '教辅' | ...
   grade: string;
   tags: string[];
-
-  // 目录结构
-  tableOfContents: ChapterNode[];
+  tableOfContents: ChapterNode[];  // 层级目录（AI提取）
+  ownerId: string;
+  fileFormat: 'pdf' | 'epub' | 'txt';
+  coverUrl?: string;         // 封面缩略图 URL
 }
 ```
 
-### 3.2 枚举类型
+### 3.2 SQLite 数据库表结构
 
-#### DocType (文档类型)
-```typescript
-enum DocType {
-  TEXTBOOK = 'textbook',               // 教材内容
-  NOTE = 'note',                       // 学习笔记
-  WRONG_PROBLEM = 'wrong_problem',     // 错题本
-  EXAM_PAPER = 'exam_paper',           // 考卷
-  COURSEWARE = '学习完成的课件',        // AI生成课件
-  KNOWLEDGE_CARD = '知识卡片',          // 知识点卡片
-  MOCK_EXAM = '模拟考试',               // 模拟考试
-  HOMEWORK = '作业',                    // 日常作业
-  TUTOR_SESSION = '辅导记录',           // AI辅导记录
-  UNKNOWN = 'unknown'
-}
-```
+| 表名 | 主要字段 | 说明 |
+|------|----------|------|
+| `users` | id, name, avatar, birthDate, baseGrade | 用户档案，替代 localStorage |
+| `books` | id, title, subject, grade, tableOfContents, ownerId | 图书元数据 |
+| `scanned_items` | id, type, subject, problemsJson, ownerId | 拍题归档及题目结构化数据 |
+| `classroom_items` | id, type(courseware\|quiz), bookTitle, chapter, contentJson | AI课堂课件和测验 |
+| `quiz_results` | id, correctCount, total, percentage, resultsJson, suggestions | 测验完成后的永久归档 |
+| `wrong_problem_quiz_links` | scannedItemId, problemIndex, coursewareId, quizId | 错题→课件/测验关联 |
+| `analyze_tasks` | id, status, result, error | 拍题异步OCR任务状态 |
 
-#### ProcessingStatus (处理状态)
-```typescript
-enum ProcessingStatus {
-  IDLE = 'idle',                       // 未开始
-  SCANNING = 'scanning',               // 扫描中
-  PROCESSED = 'processed',             // 已处理
-  ERROR = 'error',                     // 处理失败
-  INDEXING = 'indexing',               // 索引中
-  ARCHIVED = 'archived'                // 已归档
-}
-```
-
-#### ProblemStatus (题目状态)
-```typescript
-enum ProblemStatus {
-  CORRECT = 'CORRECT',                 // 正确
-  WRONG = 'WRONG',                     // 错误
-  CORRECTED = 'CORRECTED'              // 已订正
-}
-```
-
-### 3.3 目录结构设计
-
-```bash
-/opt/hl-os/data/
-├── obsidian/                    # Obsidian文件夹（Markdown存储）
-│   ├── Wrong_Problems/          # 错题本
-│   │   ├── 大宝/
-│   │   │   ├── 数学/
-│   │   │   │   └── 2026-01-20_三角函数诱导公式_abc123.md
-│   │   │   ├── 物理/
-│   │   │   └── 英语/
-│   │   ├── 二宝/
-│   │   └── shared/              # 共享错题（全家可见）
-│   │
-│   ├── No_Problems/             # 试卷作业（无错题）
-│   │   ├── 大宝/
-│   │   │   ├── 数学/
-│   │   │   │   └── 2026-01-18_期末考试卷_def456.md
-│   │   │   └── 语文/
-│   │   └── 二宝/
-│   │
-│   └── Courses/                 # AI生成的课件和测验
-│       ├── 大宝/
-│       │   ├── 数学/
-│       │   │   ├── 2026-01-19_第二章三角函数课件.md
-│       │   │   └── 2026-01-19_第二章配套测验.md
-│       │   └── 物理/
-│       └── 二宝/
-│
-├── originals/                   # 原始文件存储
-│   ├── images/                  # 原始图片（按月归档）
-│   │   └── 2026-01/             # YYYY-MM/
-│   │       ├── 20_143022_abc123.jpg      # 20号14:30:22上传
-│   │       ├── 20_150830_def456.jpg
-│   │       └── 21_091510_ghi789.png
-│   │
-│   └── books/                   # 电子教材（按月归档）
-│       └── 2026-01/
-│           ├── 高中数学必修1.pdf
-│           ├── 高中英语必修3.epub
-│           └── 初中物理八年级.txt
-│
-└── metadata.json                # 轻量级元数据索引（可选）
-```
+> **迁移机制**：`initDatabase()` 启动时自动检查字段并 `ALTER TABLE` 补全，兼容历史数据。迁移记录存于 `_migrations` 表，一次性 migration 不重复执行。
 
 ---
 
 ## 4. API设计
 
-### 4.1 API基础信息
+### 4.1 通用规范
 
-**基础URL**:
-- 开发环境: `http://localhost:3000/api`
-- 生产环境: `https://<your-domain>/api`
+**基础 URL**: `/api`
 
-**通用响应格���**:
-```typescript
-{
-  success: boolean;
-  data?: any;              // 成功时的数据
-  error?: string;          // 失败时的错误消息
-}
-```
-
-### 4.2 核心API端点
-
-#### 1. POST /api/upload-chunk (分片上传)
-
-**请求** (multipart/form-data):
-```
-chunk: <分片文件数据>
-chunkIndex: 0                           // 当前分片索引
-totalChunks: 10                          // 总分片数
-fileId: "timestamp-filename"            // 上传会话ID
-fileName: "large-book.pdf"               // 原始文件名
-ownerId: "child_1"                       // 所有者ID
-```
-
-**响应**:
+**响应格式**:
 ```json
-{
-  "success": true
-}
+{ "success": true, "data": {} }
+{ "success": false, "error": "错误描述" }
 ```
 
-**特性**:
-- 重试机制：指数退避（1秒 → 2秒 → 3秒）
-- 最多重试3次
-- 自动跳过已上传分片
+### 4.2 API 端点一览
 
-#### 2. POST /api/upload-chunk?action=merge (合并分片)
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/api/health` | 健康检查 |
+| GET/POST | `/api/users` | 获取/创建用户 |
+| PATCH | `/api/users/:id` | 更新用户资料 |
+| DELETE | `/api/users/:id` | 删除用户 |
+| GET | `/api/books` | 获取图书列表（按 ownerId 过滤）|
+| POST | `/api/upload-chunk` | 分片上传（单片）|
+| POST | `/api/upload-chunk?action=merge` | 合并所有分片 |
+| POST | `/api/upload-book` | 完整图书上传（小文件）|
+| POST | `/api/save-book` | 保存图书元数据 |
+| PATCH | `/api/books/:id` | 编辑图书信息 |
+| DELETE | `/api/books/:id` | 删除图书 |
+| POST | `/api/analyze` | 发起拍题 OCR（异步任务）|
+| GET | `/api/analyze-task/:id` | 轮询 OCR 任务状态 |
+| POST | `/api/save-scanned-item` | 保存 OCR 归档结果 |
+| GET | `/api/scanned-items` | 获取拍题列表 |
+| DELETE | `/api/scanned-items/:id` | 删除拍题记录 |
+| GET | `/api/classroom` | 获取课件/测验列表（支持 type/source 过滤）|
+| GET | `/api/classroom/:id` | 获取单个课件或测验详情 |
+| DELETE | `/api/classroom/:id` | 删除课件或测验 |
+| POST | `/api/classroom/:id/mark-studied` | 标记课件已学（记录时间戳）|
+| POST | `/api/generate-courseware` | 生成章节课件（保存到 classroom_items）|
+| POST | `/api/generate-assessment` | 生成章节测验（保存到 classroom_items）|
+| POST | `/api/wrong-problems/:id/courseware` | 针对单道错题生成讲解课件 |
+| GET | `/api/quiz-results` | 获取测验历史列表 |
+| GET | `/api/quiz-results/:id` | 获取测验详情 |
+| PATCH | `/api/quiz-results/:id/override` | 用户二次批改某道题 |
+| POST | `/api/tts` | 文字转语音（豆包 TTS，Base64 MP3）|
+| GET | `/api/dashboard` | 获取看板统计数据 |
 
-**请求** (application/json):
-```json
-{
-  "fileId": "timestamp-filename",
-  "fileName": "large-book.pdf",
-  "ownerId": "child_1"
-}
+### 4.3 拍题异步流程（重要）
+
+OCR 识别耗时约 30~450 秒，采用异步任务模式：
+
+```
+POST /api/analyze     → 返回 { taskId }
+           ↓
+GET /api/analyze-task/:taskId  （前端每 3 秒轮询）
+           ↓
+status: pending → processing → done | failed
+           ↓ done
+POST /api/save-scanned-item   → 持久化到数据库
 ```
 
-**响应**:
-```json
-{
-  "success": true,
-  "filePath": "/uploads/files/uuid.pdf"
-}
+### 4.4 分片上传流程
+
 ```
+文件 > 5MB 时自动触发：
 
-#### 3. POST /api/analyze-image (图像分析)
-
-**请求**:
-```json
-{
-  "base64Image": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
-}
+1. 前端将文件切为 5MB/片
+2. 逐片 POST /api/upload-chunk（附带 fileId / chunkIndex / totalChunks）
+3. 全部上传后 POST /api/upload-chunk?action=merge
+4. 后端合并 → 触发 AI 元数据提取 → 返回 book 对象
 ```
-
-**响应**:
-```json
-{
-  "success": true,
-  "data": {
-    "text": "# 数学错题\n\n## 第1题\n...",
-    "meta": {
-      "type": "wrong_problem",
-      "subject": "数学",
-      "chapter_hint": "三角函数",
-      "knowledge_status": "需加强",
-      "frontmatter": "---\ntags: [三角函数, 诱导公式]\n---",
-      "problems": [...]
-    }
-  }
-}
-```
-
-**错误码**:
-- 400: 请求格式错误
-- 429: Gemini API配额超限
-- 503: 网络连接失败
-
-#### 4. POST /api/generate-courseware (生成课件)
-
-**请求**:
-```json
-{
-  "bookTitle": "高中数学必修1",
-  "chapter": "第二章 三角函数",
-  "studentName": "大宝",
-  "subject": "数学",
-  "teachingStyle": "rigorous",
-  "wrongProblems": [...]
-}
-```
-
-**响应**:
-```json
-{
-  "success": true,
-  "data": "# 第二章 三角函数\n\n## 2.1 弧度制\n\n### 核心概念\n..."
-}
-```
-
-#### 5. POST /api/generate-assessment (生成测验)
-
-**请求**:
-```json
-{
-  "bookTitle": "高中数学必修1",
-  "subject": "数学",
-  "chapter": "第二章 三角函数",
-  "studentName": "大宝",
-  "wrongProblems": [...],
-  "coursewareContent": "# 第二章 三角函数\n\n..."
-}
-```
-
-**出题规则**:
-- 每个核心知识点: 2道基础题 + 1道提高题
-- 难度分配: 70%基础 + 30%提高
-- 若有历史错题: 针对薄弱环节出变式
-
-#### 6. POST /api/upload-book (教材上传)
-
-**请求** (multipart/form-data):
-```
-file: <PDF/EPUB/TXT文件>
-ownerId: 'child_1'
-```
-
-**文件限制**:
-- 最大文件大小: 100MB
-- 支持格式: PDF, EPUB, TXT
 
 ---
 
 ## 5. 部署架构
 
-本项目采用单容器 Docker 部署，前端和后端服务均封装在一个镜像内。
+### 5.1 单容器模型
 
-### 5.1 生产环境
+```
+宿主机 (Linux)
+  ├─ Nginx         → 反向代理，监听 :80/:443
+  ├─ Docker Engine → 运行 twinkle 容器
+  └─ /opt/twinkle/data/  → 持久化数据卷（挂载到容器）
 
-直接使用根目录的 deploy.sh 脚本和 Dockerfile 进行部署：
+twinkle 容器 (node:20-alpine)
+  ├─ Express.js    → :3000（仅绑定 127.0.0.1）
+  ├─ 静态文件      → React 构建产物 (/app/public)
+  └─ poppler-utils → pdftoppm（PDF 封面提取 / 扫描版 OCR）
+```
 
-`ash
-sudo ./deploy.sh
-`
+### 5.2 Dockerfile 三阶段构建
 
-系统会构建单一容器 	winkle，映射 3000 端口，提供前后端一体化服务。
+| 阶段 | 基础镜像 | 产物 |
+|------|----------|------|
+| frontend-builder | node:20-alpine | React 构建产物 (dist/) |
+| backend-builder | node:20-alpine + 原生编译工具 | 后端 JS (dist/) |
+| production | node:20-alpine + poppler-utils | 最终运行镜像（不含编译工具链）|
+
+> 编译工具链（python3/make/g++/dev 头文件）在最终 stage 会被 `apk del` 清除，减小镜像体积。
+
+### 5.3 关键配置约定
+
+| 项 | 值 |
+|---|---|
+| 容器名 | `twinkle` |
+| 镜像名 | `twinkle:latest` |
+| 监听端口 | `127.0.0.1:3000`（仅本机） |
+| 数据目录（宿主） | `/opt/twinkle/data` |
+| 数据库文件 | `/opt/twinkle/data/hlos.db` |
+| 环境变量文件 | 项目根 `.env`（已 gitignore） |
 
 ---
 
 ## 6. 图书元数据提取流程
 
-### 6.1 技术实现
-
-图书上传后的元数据提取采用**AI 智能识别**方案：
-
-1. **PDF 解析**: 使用 `pdfjs-dist` (Mozilla PDF.js) 提取前 4 页文本内容
-2. **AI 分析**: 使用火山豆包大模型从前 4 页文本中提取结构化元数据
-3. **字段映射**: AI 返回的 JSON 映射到数据库字段
-4. **降级处理**: AI 失败时使用文件名作为默认书名
-
-### 6.2 元数据字段
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| title | string | ✅ | 书名 |
-| author | string | ❌ | 作者或编者 |
-| subject | string | ❌ | 学科（语文/数学/英语/物理/化学/生物/历史/地理/政治/其他） |
-| grade | string | ❌ | 年级（一年级上~高三下） |
-| category | string | ❌ | 类型（教科书/培训资料/工具书/课外读物） |
-| publisher | string | ❌ | 出版社名称 |
-| publishDate | string | ❌ | 出版时间（YYYY-MM 格式） |
-| tags | string[] | ❌ | 标签（默认添加用户名） |
-
-### 6.3 存储策略
-
-- **原始文件**: `/opt/hl-os/data/originals/books/{ownerId}/{uuid}.pdf`
-- **封面图片**: Base64 存储在元数据中（当前版本未实现提取）
-- **元数据索引**: 通过 API 返回给前端，未来将同步到 AnythingLLM
-
-### 6.4 AI 提示词设计
-
-AI 使用结构化提示词提取元数据：
+### 6.1 文字版 PDF（可复制文本）
 
 ```
-你是一个专业的图书元数据提取助手。请从以下教材 PDF 的前 4 页文本中，提取图书的基本信息。
-
-【提取规则】
-1. 书名：优先从封面或版权页提取
-2. 学科：必须是限定选项之一
-3. 年级：识别"X年级X学期"或"X年级X册"格式
-4. 类型：教材类图书默认选择"教科书"
-5. 出版社：查找"出版社出版"关键词
-6. 出版时间：查找"202X年X月"，转换为 YYYY-MM
-7. 置信度：信息充足 0.8-1.0，缺失较多 0.3-0.7
+上传 PDF
+    ↓
+pdfjs-dist 提取前 4 页文本（最多 8000 字）
+    ↓
+调用豆包文本模型 → 返回结构化元数据 JSON
+    ↓
+（如有全文）并发调用豆包文本模型逐片（6000字/片）转 Markdown
+    ↓
+保存到 books 表 + 文件写入 originals/books/
 ```
+
+### 6.2 扫描版 PDF（图片式）
+
+```
+上传 PDF
+    ↓
+pdftoppm 将 PDF 逐页转为 JPEG 图片
+    ↓
+调用豆包视觉模型（多模态），前 4 页图片 → 提取元数据
+    ↓
+全本图片分批（3张/批，≤3并发）→ 豆包 Vision OCR → 逐批转 Markdown
+    ↓
+保存到 books 表 + 文件写入 originals/books/
+```
+
+> 扫描版 PDF 需要宿主或容器中安装 `poppler-utils`（提供 `pdftoppm` 命令）。Dockerfile 已默认安装。
+
+### 6.3 AI 提取字段
+
+| 字段 | 说明 |
+|------|------|
+| title | 书名（必提取） |
+| author | 作者/编者（选填） |
+| subject | 学科分类（数学/物理/英语等）|
+| category | 图书类型（教材/教辅/竞赛资料等）|
+| grade | 年级（一年级上～高三下） |
+| publisher | 出版社名称 |
+| publishDate | 出版时间（YYYY-MM）|
+| tableOfContents | 章节目录树（level 1=章, 2=节）|
+
+---
 
 **相关文档**:
-- [部署指南](./DEPLOYMENT.md) - 详细部署步骤
-- [安全配置](./SECURITY.md) - 安全加固指南
+- [部署指南](./REMOTE_DEPLOY.md) - 全新机器部署详细步骤
+- [安全配置](./SECURITY.md) - Nginx 鉴权与 HTTPS
 - [用户手册](./USER_GUIDE.md) - 功能使用说明
