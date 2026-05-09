@@ -189,9 +189,10 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
   const completeAudioUrl = `/data/tts_cache/${coursewareId}/complete.mp3`;
 
   // 挂载时检查 complete.mp3 是否已存在
+  // Why cache:no-store: 文件有可能被手动删除或重根，不能依赖浏览器缓存的 200 响应
   useEffect(() => {
     if (!coursewareId) return;
-    fetch(completeAudioUrl, { method: 'HEAD' })
+    fetch(completeAudioUrl + '?_=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
       .then(r => setHasComplete(r.ok))
       .catch(() => setHasComplete(false));
   }, [coursewareId, completeAudioUrl]);
@@ -424,13 +425,24 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     if (hasComplete) {
       const audio = audioRef.current || new Audio();
       audioRef.current = audio;
-      audio.src = completeAudioUrl;
+      // 加时间戳避免浏览器缓存到已删除的文件
+      audio.src = completeAudioUrl + '?_=' + Date.now();
       setChunkIdx(0);
-      try { await audio.play(); } catch { setPlaying(false); return; }
-      await new Promise<void>(resolve => {
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
+      let started = false;
+      try { await audio.play(); started = true; } catch { /* autoplay policy */ }
+      if (!started) { setPlaying(false); return; }
+      const playOk = await new Promise<boolean>(resolve => {
+        audio.onended = () => resolve(true);
+        // onerror: 文件被删除或损坏 → 降级到分段模式
+        audio.onerror = () => resolve(false);
       });
+      if (!playOk && !stopRef.current) {
+        console.warn('[TTS] complete.mp3 不可用，重置为分段模式');
+        setHasComplete(false);
+        setPlaying(false);
+        setErrMsg('完整音频已失效，请重新点击播放');
+        return;
+      }
       if (!stopRef.current) await markStudied();
       setPlaying(false);
       setChunkIdx(0);

@@ -294,7 +294,7 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
 
       {/* 预览模态：用户选择保存或重新生成 */}
       {savingPreview && !generating && (
-        <div className="fixed inset-0 z-[250] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[250] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 pb-24 md:pb-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
