@@ -25,6 +25,52 @@ interface Slide {
   notes: string; // 讲解词，用于 TTS
 }
 
+/**
+ * 三级容错 JSON 数组解析，应对 LLM 偶发的格式瑕疵：
+ * Level 1: 直接 JSON.parse（正常情况）
+ * Level 2: 剥离 Markdown 代码块后解析
+ * Level 3: 修复非法反斜杠转义后解析
+ * 任一级成功即返回，全部失败抛出最后一次错误。
+ */
+function parseJsonArray(raw: string): any[] {
+  const attempts: Array<() => string> = [
+    // L1: raw as-is
+    () => raw.trim(),
+    // L2: strip markdown fences（包括前置说明文字）
+    () => {
+      const m = raw.match(/```(?:json)?[\s\S]*?([\s\S]*?)```/i);
+      if (m) return m[1].trim();
+      // 直接找第一个 '[' 到最后一个 ']'
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start !== -1 && end > start) return raw.slice(start, end + 1);
+      return raw.trim();
+    },
+    // L3: L2 基础上修复非法反斜杠转义
+    () => {
+      const m = raw.match(/```(?:json)?[\s\S]*?([\s\S]*?)```/i);
+      let s = m ? m[1].trim() : raw.trim();
+      const start = s.indexOf('[');
+      const end = s.lastIndexOf(']');
+      if (start !== -1 && end > start) s = s.slice(start, end + 1);
+      // 修复 LLM 遗漏 \\ 的情况：\x（x 不是合法转义字符）→ \\x
+      return s.replace(/\\(u(?![0-9a-fA-F]{4})|[^"\\/bfnrtu])/g, '\\\\$1');
+    },
+  ];
+
+  let lastErr: any;
+  for (const prepare of attempts) {
+    try {
+      const candidate = prepare();
+      const result = JSON.parse(candidate);
+      if (Array.isArray(result)) return result;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
 // 课件生成接口（保持原 path 向后兼容）
 router.post('/generate-courseware', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -99,7 +145,13 @@ router.post('/generate-courseware', async (req: Request, res: Response, next: Ne
     const styleDesc = styleMap[teachingStyle] || '语言严谨规范，逻辑层次分明';
 
     const systemPrompt = `你是一位优秀的学科教师，擅长用清晰易读的文章形式讲解知识点。
-请严格按照指定 JSON 格式输出，不要输出任何其他文字。`;
+请严格按照指定 JSON 格式输出，不要输出任何其他文字。
+
+【JSON 输出规范 - 必须遵守】
+1. 只输出一个合法的 JSON 数组，不加任何前缀、后缀、注释或 Markdown 代码块。
+2. JSON 字符串内禁止出现未转义的英文双引号（"），对话中的引号请改用中文引号（""）或省略。
+3. JSON 字符串内的换行必须写为 \\n，不能有真实的换行符。
+4. 不要使用 LaTeX 公式，只用纯文字表达。`;
 
     // 单章 5-8 节，N 章则线性放大
     const minSec = 5 * chapterCount;
@@ -141,15 +193,14 @@ ${chapterListBlock}
     } as any);
 
     const rawContent = completion.choices[0]?.message?.content || '[]';
-    // 清理可能的 markdown 代码块包裹
-    const cleanJson = rawContent.replace(/^```json\n?|\n?```$/g, '').trim();
 
     let slides: Slide[];
     try {
-      slides = JSON.parse(cleanJson);
-      if (!Array.isArray(slides)) throw new Error('返回值不是数组');
-    } catch (parseErr) {
-      console.error('[Courseware] JSON 解析失败:', rawContent.substring(0, 200));
+      slides = parseJsonArray(rawContent);
+      if (slides.length === 0) throw new Error('返回值为空数组');
+    } catch (parseErr: any) {
+      // 记录完整原始内容，便于人工排查 LLM 输出格式问题
+      console.error('[Courseware] JSON 解析失败（完整原始输出）:\n', rawContent);
       return res.status(500).json({ success: false, error: '模型返回格式异常，请重试' });
     }
 
