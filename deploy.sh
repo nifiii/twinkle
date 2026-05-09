@@ -8,9 +8,9 @@ set -euo pipefail
 # ---------- 配置 ----------
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
-DATA_DIR="${DATA_DIR_OVERRIDE:-/opt/hl-os/data}"
-IMAGE="hl-os:latest"
-CONTAINER="hl-os"
+DATA_DIR="${DATA_DIR_OVERRIDE:-/opt/twinkle/data}"
+IMAGE="twinkle:latest"
+CONTAINER="twinkle"
 
 
 # ---------- 颜色 ----------
@@ -63,7 +63,7 @@ docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
-  -v "$DATA_DIR:/opt/hl-os/data" \
+  -v "$DATA_DIR:/opt/twinkle/data" \
   --env-file "$ENV_FILE" \
   "$IMAGE" >/dev/null
 

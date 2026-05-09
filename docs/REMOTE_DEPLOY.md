@@ -68,10 +68,10 @@ ufw allow 80/tcp
 #### Step 4 · 拉代码
 
 ```bash
-git clone <repo-url> && cd HL-os
+git clone <repo-url> && cd twinkle
 ```
 
-放在任何目录均可（如 `/root/HL-os`、`/srv/HL-os`），`deploy.sh` 自动定位脚本所在目录。
+放在任何目录均可（如 `/root/twinkle`、`/srv/twinkle`），`deploy.sh` 自动定位脚本所在目录。
 
 #### Step 5 · 配置 `.env`
 
@@ -111,9 +111,9 @@ sudo ./deploy.sh
 
 脚本会：
 1. 校验依赖与项目根 `.env` 必填项
-2. 创建 `/opt/hl-os/data`
-3. `docker build -t hl-os:latest .`（首次约 5–8 分钟）
-4. 替换/启动容器 `hl-os`，挂载数据卷，绑定 `127.0.0.1:3000`
+2. 创建 `/opt/twinkle/data`
+3. `docker build -t twinkle:latest .`（首次约 5–8 分钟）
+4. 替换/启动容器 `twinkle`，挂载数据卷，绑定 `127.0.0.1:3000`
 5. 健康检查 `/api/health`
 
 #### Step 7 · 验证
@@ -128,8 +128,8 @@ curl http://<YOUR_DOMAIN>/health        # 经 Nginx
 ### 3.4 更新
 
 ```bash
-cd HL-os && git pull && sudo ./deploy.sh
-# 或远程一行: ssh root@<host> "cd /path/to/HL-os && git pull && ./deploy.sh"
+cd twinkle && git pull && sudo ./deploy.sh
+# 或远程一行: ssh root@<host> "cd /path/to/twinkle && git pull && ./deploy.sh"
 ```
 
 数据卷不动，容器整体替换。
@@ -167,15 +167,15 @@ mkdir -p /etc/nginx/ssl
 | 镜像构建 OOM（2GB 机器） | 部署失败 | 加 swap：`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
 | 国内拉 npm/Docker Hub 慢 | 构建超时 | Dockerfile 已内置 npmmirror；Docker Hub 可配 `daemon.json` 镜像加速 |
 | 80 端口被 Apache/旧 Nginx 占用 | Nginx 起不来 | `lsof -i :80` 查占用；停掉冲突服务 |
-| `.env` 字段错填 | 容器启动后 API 报 401 | `docker logs hl-os` 看具体报错，改 `.env` 后重跑 `./deploy.sh` |
-| SELinux 拒绝挂载 | 容器无法读写 `/opt/hl-os/data` | `chcon -Rt svirt_sandbox_file_t /opt/hl-os/data` 或 `setenforce 0`（临时）|
+| `.env` 字段错填 | 容器启动后 API 报 401 | `docker logs twinkle` 看具体报错，改 `.env` 后重跑 `./deploy.sh` |
+| SELinux 拒绝挂载 | 容器无法读写 `/opt/twinkle/data` | `chcon -Rt svirt_sandbox_file_t /opt/twinkle/data` 或 `setenforce 0`（临时）|
 
 ## 5. 回滚
 
 ### 5.1 回滚到上个版本
 
 ```bash
-cd HL-os
+cd twinkle
 git log --oneline -5            # 找到上个 commit
 git reset --hard <commit-sha>
 ./deploy.sh
@@ -185,22 +185,22 @@ git reset --hard <commit-sha>
 
 ```bash
 # 备份
-tar czf /root/hlos-backup-$(date +%F).tar.gz -C /opt/hl-os data
+tar czf /root/hlos-backup-$(date +%F).tar.gz -C /opt/twinkle data
 
 # 恢复
-docker rm -f hl-os
-rm -rf /opt/hl-os/data
-tar xzf /root/hlos-backup-2026-05-08.tar.gz -C /opt/hl-os
+docker rm -f twinkle
+rm -rf /opt/twinkle/data
+tar xzf /root/hlos-backup-2026-05-08.tar.gz -C /opt/twinkle
 ./deploy.sh
 ```
 
 ### 5.3 完全清理
 
 ```bash
-docker rm -f hl-os
-docker rmi hl-os:latest
-rm -rf /opt/hl-os
-rm /etc/nginx/conf.d/hl-os.conf
+docker rm -f twinkle
+docker rmi twinkle:latest
+rm -rf /opt/twinkle
+rm /etc/nginx/conf.d/twinkle.conf
 systemctl reload nginx
 # 项目代码与 .env 保留在原 git 目录，按需手动删除
 ```
@@ -209,16 +209,16 @@ systemctl reload nginx
 
 ### Q1 容器启动失败，怎么定位？
 ```bash
-docker logs --tail 100 hl-os
-docker inspect hl-os --format '{{.State.Status}} {{.State.Error}}'
+docker logs --tail 100 twinkle
+docker inspect twinkle --format '{{.State.Status}} {{.State.Error}}'
 ```
-常见原因：`.env` 缺关键 Key、`/opt/hl-os/data` 权限不对、端口 3000 被占。
+常见原因：`.env` 缺关键 Key、`/opt/twinkle/data` 权限不对、端口 3000 被占。
 
 ### Q2 Nginx 502 Bad Gateway？
 容器没起来或没监听 3000：
 ```bash
-docker ps | grep hl-os                          # 状态
-docker exec hl-os wget -q -O- http://localhost:3000/api/health
+docker ps | grep twinkle                          # 状态
+docker exec twinkle wget -q -O- http://localhost:3000/api/health
 ss -tlnp | grep 3000                            # 端口
 ```
 
@@ -227,15 +227,15 @@ ss -tlnp | grep 3000                            # 端口
 
 ### Q4 数据库被锁/损坏怎么办？
 ```bash
-docker stop hl-os
-sqlite3 /opt/hl-os/data/hlos.db "PRAGMA integrity_check;"
+docker stop twinkle
+sqlite3 /opt/twinkle/data/hlos.db "PRAGMA integrity_check;"
 # 严重损坏时从备份恢复（见 5.2）
-docker start hl-os
+docker start twinkle
 ```
 
 ### Q5 怎么查看后端实时请求日志？
 ```bash
-docker logs -f hl-os
+docker logs -f twinkle
 ```
 拍题轮询日志已被屏蔽，看到的都是有效请求。
 

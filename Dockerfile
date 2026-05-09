@@ -77,7 +77,7 @@ COPY --from=frontend-builder /app/dist ./public
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    DATA_DIR=/opt/hl-os/data
+    DATA_DIR=/opt/twinkle/data
 
 EXPOSE 3000
 

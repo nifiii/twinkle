@@ -72,7 +72,7 @@ family:$apr1$ZwEqEj5z$XxHxHxHxHxHxHxHxHxHxHx
 
 **编辑 nginx 配置**:
 ```bash
-sudo nano /etc/nginx/sites-available/hl-os
+sudo nano /etc/nginx/sites-available/twinkle
 ```
 
 **添加 basic auth 配置**:
@@ -87,7 +87,7 @@ server {
 
     # 前端静态文件
     location / {
-        root /opt/hl-os/dist;
+        root /opt/twinkle/dist;
         try_files $uri $uri/ /index.html;
         index index.html;
     }
@@ -206,14 +206,14 @@ sudo certbot certonly --standalone -d your-domain.com -d www.your-domain.com
 **复制证书到项目目录**:
 ```bash
 # 创建 SSL 目录
-sudo mkdir -p /opt/hl-os/ssl
+sudo mkdir -p /opt/twinkle/ssl
 
 # 复制证书
-sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem /opt/hl-os/ssl/cert.pem
-sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem /opt/hl-os/ssl/key.pem
+sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem /opt/twinkle/ssl/cert.pem
+sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem /opt/twinkle/ssl/key.pem
 
 # 修改权限
-sudo chown -R 1000:1000 /opt/hl-os/ssl
+sudo chown -R 1000:1000 /opt/twinkle/ssl
 ```
 
 **编辑 nginx 配置**:
@@ -233,7 +233,7 @@ server {
 
     # 其他配置与 HTTP server 块相同
     location / {
-        root /opt/hl-os/dist;
+        root /opt/twinkle/dist;
         try_files $uri $uri/ /index.html;
     }
 
@@ -260,11 +260,11 @@ server {
 ```bash
 cat > /usr/local/bin/renew-cert.sh <<'EOF'
 #!/bin/bash
-docker-compose -f /opt/hl-os/docker-compose.yml stop nginx
+docker-compose -f /opt/twinkle/docker-compose.yml stop nginx
 certbot renew --quiet
-cp /etc/letsencrypt/live/your-domain.com/fullchain.pem /opt/hl-os/ssl/cert.pem
-cp /etc/letsencrypt/live/your-domain.com/privkey.pem /opt/hl-os/ssl/key.pem
-docker-compose -f /opt/hl-os/docker-compose.yml start nginx
+cp /etc/letsencrypt/live/your-domain.com/fullchain.pem /opt/twinkle/ssl/cert.pem
+cp /etc/letsencrypt/live/your-domain.com/privkey.pem /opt/twinkle/ssl/key.pem
+docker-compose -f /opt/twinkle/docker-compose.yml start nginx
 EOF
 
 chmod +x /usr/local/bin/renew-cert.sh
@@ -397,13 +397,13 @@ location /api/ {
 
 ```bash
 # 创建备份目录
-sudo mkdir -p /opt/hl-os/backups
+sudo mkdir -p /opt/twinkle/backups
 
 # 备份密码文件
-sudo cp /etc/nginx/auth/.htpasswd /opt/hl-os/backups/.htpasswd.backup
+sudo cp /etc/nginx/auth/.htpasswd /opt/twinkle/backups/.htpasswd.backup
 
 # 设置定时备份（可选）
-echo "0 2 * * * cp /etc/nginx/auth/.htpasswd /opt/hl-os/backups/.htpasswd.$(date +\%Y\%m\%d)" | sudo crontab -
+echo "0 2 * * * cp /etc/nginx/auth/.htpasswd /opt/twinkle/backups/.htpasswd.$(date +\%Y\%m\%d)" | sudo crontab -
 ```
 
 ---
@@ -419,26 +419,26 @@ echo "0 2 * * * cp /etc/nginx/auth/.htpasswd /opt/hl-os/backups/.htpasswd.$(date
 
 ### 5.2 自动备份脚本
 
-创建 `/opt/hl-os/scripts/backup.sh`:
+创建 `/opt/twinkle/scripts/backup.sh`:
 
 ```bash
 #!/bin/bash
 DATE=$(date +%Y%m%d)
-BACKUP_DIR="/opt/hl-os/backups/$DATE"
+BACKUP_DIR="/opt/twinkle/backups/$DATE"
 
 mkdir -p "$BACKUP_DIR"
 
 # 备份 Obsidian 文件夹
-tar -czf "$BACKUP_DIR/obsidian.tar.gz" /opt/hl-os/data/obsidian/
+tar -czf "$BACKUP_DIR/obsidian.tar.gz" /opt/twinkle/data/obsidian/
 
 # 备份原始文件
-tar -czf "$BACKUP_DIR/originals.tar.gz" /opt/hl-os/data/originals/
+tar -czf "$BACKUP_DIR/originals.tar.gz" /opt/twinkle/data/originals/
 
 # 备份 AnythingLLM
-tar -czf "$BACKUP_DIR/anythingllm.tar.gz" /opt/hl-os/anythingllm-storage/
+tar -czf "$BACKUP_DIR/anythingllm.tar.gz" /opt/twinkle/anythingllm-storage/
 
 # 备份元数据
-cp /opt/hl-os/data/metadata.json "$BACKUP_DIR/"
+cp /opt/twinkle/data/metadata.json "$BACKUP_DIR/"
 
 # 备份 Nginx 配置
 cp /etc/nginx/auth/.htpasswd "$BACKUP_DIR/"
@@ -452,10 +452,10 @@ echo "备份完成: $BACKUP_DIR"
 crontab -e
 
 # 添加每日凌晨3点备份
-0 3 * * * /opt/hl-os/scripts/backup.sh
+0 3 * * * /opt/twinkle/scripts/backup.sh
 
 # 保留最近30天
-0 4 * * * find /opt/hl-os/backups -type d -mtime +30 -exec rm -rf {} \;
+0 4 * * * find /opt/twinkle/backups -type d -mtime +30 -exec rm -rf {} \;
 ```
 
 ### 5.3 恢复备份
@@ -465,10 +465,10 @@ crontab -e
 docker-compose stop anythingllm
 
 # 删除旧数据
-rm -rf /opt/hl-os/anythingllm-storage/*
+rm -rf /opt/twinkle/anythingllm-storage/*
 
 # 解压备份
-tar -xzf /opt/hl-os/backups/20260120/anythingllm.tar.gz -C /
+tar -xzf /opt/twinkle/backups/20260120/anythingllm.tar.gz -C /
 
 # 重启服务
 docker-compose start anythingllm
@@ -493,7 +493,7 @@ docker-compose start anythingllm
 # 2. 使用无痕/隐私模式测试
 
 # 3. 验证 Nginx 配置
-sudo cat /etc/nginx/sites-available/hl-os | grep auth_basic
+sudo cat /etc/nginx/sites-available/twinkle | grep auth_basic
 
 # 4. 重新加载 Nginx
 sudo nginx -s reload

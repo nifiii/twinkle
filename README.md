@@ -22,15 +22,15 @@
 
 ```
 ┌───────────────────────────────────────────────────┐
-│  浏览器 → 宿主 Nginx :80 → 容器 hl-os :3000        │
+│  浏览器 → 宿主 Nginx :80 → 容器 twinkle :3000        │
 ├───────────────────────────────────────────────────┤
-│  hl-os 容器                                       │
+│  twinkle 容器                                       │
 │    ├─ Express API (/api/*)                        │
 │    ├─ 静态前端 (Vite build, /public)               │
-│    └─ SQLite (better-sqlite3) → /opt/hl-os/data    │
+│    └─ SQLite (better-sqlite3) → /opt/twinkle/data    │
 └───────────────────────────────────────────────────┘
                   ↓ 挂载
-            /opt/hl-os/data/      (宿主持久化)
+            /opt/twinkle/data/      (宿主持久化)
               ├─ hlos.db          SQLite 数据库
               ├─ obsidian/covers  封面图
               ├─ originals/books  原始 PDF
@@ -62,7 +62,7 @@ apt-get update && apt-get install -y curl git
 # yum install -y curl git
 
 # 2. 拉代码（任意目录均可）
-git clone <repo-url> && cd HL-os
+git clone <repo-url> && cd twinkle
 
 # 3. 配置环境变量（必填: ARK_API_KEY / ARK_MODEL_ID / ARK_VISION_MODEL_ID）
 cp .env.example .env
@@ -77,21 +77,21 @@ sudo ./deploy.sh
 ### 后续更新
 
 ```bash
-cd HL-os && git pull && sudo ./deploy.sh
+cd twinkle && git pull && sudo ./deploy.sh
 ```
 
-`deploy.sh` 会重新构建镜像、滚动替换容器、做健康检查。容器无状态，数据全部落在宿主 `/opt/hl-os/data`。
+`deploy.sh` 会重新构建镜像、滚动替换容器、做健康检查。容器无状态，数据全部落在宿主 `/opt/twinkle/data`。
 
 ### 关键约定
 
 | 项 | 路径/值 |
 |---|---|
 | 环境变量文件 | 项目根 `.env`（已在 `.gitignore` 中）|
-| 数据目录 | `/opt/hl-os/data`（宿主，挂载到容器）|
+| 数据目录 | `/opt/twinkle/data`（宿主，挂载到容器）|
 | 容器端口 | `127.0.0.1:3000`（仅本机，外部经 Nginx）|
-| Nginx 配置 | `/etc/nginx/conf.d/hl-os.conf`（需用户自行配置，参考 `nginx.conf.example`）|
-| 镜像名 | `hl-os:latest` |
-| 容器名 | `hl-os` |
+| Nginx 配置 | `/etc/nginx/conf.d/twinkle.conf`（需用户自行配置，参考 `nginx.conf.example`）|
+| 镜像名 | `twinkle:latest` |
+| 容器名 | `twinkle` |
 
 ### 数据库
 
@@ -117,15 +117,15 @@ SQLite，**无需手工 SQL**。后端启动时自动：
 ## 🛠️ 管理命令
 
 ```bash
-docker logs -f hl-os               # 查看后端日志
-docker restart hl-os               # 重启容器
-docker exec -it hl-os sh           # 进入容器
+docker logs -f twinkle               # 查看后端日志
+docker restart twinkle               # 重启容器
+docker exec -it twinkle sh           # 进入容器
 
 # 备份数据
-tar czf hlos-backup-$(date +%F).tar.gz -C /opt/hl-os data
+tar czf hlos-backup-$(date +%F).tar.gz -C /opt/twinkle data
 
 # 重置数据（危险）
-docker rm -f hl-os && rm -rf /opt/hl-os/data && ./deploy.sh
+docker rm -f twinkle && rm -rf /opt/twinkle/data && ./deploy.sh
 ```
 
 ---

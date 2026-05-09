@@ -25,7 +25,7 @@
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │           Vite + React 18 + TypeScript                 │  │
 │  │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐  │  │
-│  │  │Dashboard│ Library │ Capture │StudyRoom│ Tutor  │  │  │
+│  │  │Dashboard│ Resources │ Tutor                │  │  │
 │  │  └─────────┴─────────┴─────────┴─────────┴─────────┘  │  │
 │  │  ┌──────────��────────────────────────────────────────┐  │  │
 │  │  │    API Service Layer (apiService.ts)             │  │  │
@@ -40,16 +40,16 @@
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  Nginx (Reverse Proxy)                       │
-│           :80/:443 → 后端 :3000, AnythingLLM :3001         │
+│           :80/:443 → 后端 :3000                                │
 └─────────────────────────────────────────────────────────────┘
                             │
-        ┌───────────────────┴───────────────────┐
-        ▼                                       ▼
-┌──────────────────┐                  ┌──────────────────────┐
-│  Node.js Backend │◄─────────────────┤  AnythingLLM RAG     │
-│  Express.js      │  Index API       │  (LanceDB + Gemini)  │
-│  :3000           │                  │  :3001               │
-└─────────┬────────┘                  └──────────────────────┘
+                             │
+                             ▼
+┌──────────────────┐
+│  Node.js Backend │
+│  Express.js      │
+│  :3000           │
+└─────────┬────────┘
          │
          ├───► [Doubao Service] (元数据/Markdown)
          │
@@ -71,8 +71,7 @@
          ▼
 ┌──────────────────────────────────────────────────┐
 │           AI Services API                        │
-│  - Google Gemini 3 (图像分析/课件/推理)           │
-│  - Doubao-seed-1-8-251228 (PDF元数据/Markdown转换)│
+│  - Doubao-seed-1-8-251228 (图像分析/课件/元数据)  │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -105,8 +104,7 @@
 
 **数据流向**：
 1. 用户上传 → 后端保存原始文件到 `originals/` + Obsidian Markdown到 `obsidian/`
-2. 后端推送元数据到 AnythingLLM（包含文件路径链接）
-3. 前端通过 API 查询 AnythingLLM → 获取文件路径 → 读取 Markdown/PDF 内容
+2. 前端通过 API 直接请求后端读取 Markdown/PDF 内容
 
 ---
 
@@ -133,7 +131,6 @@
 | **Node.js** | 20.x | 运行时环境 |
 | **Express.js** | 4.21.2 | RESTful API框架 |
 | **TypeScript** | 5.7.2 | 后端类型安全 |
-| **@google/genai** | 1.37.0 | Gemini API客户端SDK |
 | **openai** | 4.x | Doubao API 客户端 (兼容层) |
 | **pdf-img-convert** | 1.x | PDF 封面提取 (无依赖) |
 | **Multer** | 1.4.5-lts.1 | 文件上传中间件 (100MB限制) |
@@ -146,9 +143,7 @@
 
 | 服务 | 用途 | 配置 |
 |------|------|------|
-| **Google Gemini API** | 视觉识别/推理/向量化 | GEMINI_API_KEY |
 | **ByteDance Doubao API** | 中文元数据/Markdown转换 | ARK_API_KEY, ARK_MODEL_ID |
-| **AnythingLLM** | RAG向量数据库 | ANYTHINGLLM_ENDPOINT, API_KEY |
 
 ---
 
@@ -176,7 +171,6 @@ interface ScannedItem {
   rawMarkdown: string;                 // AI生成的Markdown文本
   meta: StructuredMetaData;            // 结构化元数据
   status: ProcessingStatus;            // 处理状态
-  anythingLlmIndexed?: boolean;        // 是否已索引到RAG
 
   // 多页试卷关联字段
   parentExamId?: string;               // 父试卷ID（多页共享）
@@ -229,10 +223,6 @@ interface EBook {
 
   // 目录结构
   tableOfContents: ChapterNode[];
-
-  // RAG集成
-  indexStatus: IndexStatus;            // 'PENDING' | 'INDEXING' | 'INDEXED' | 'FAILED'
-  anythingLlmDocId?: string;
 }
 ```
 
@@ -469,180 +459,21 @@ ownerId: 'child_1'
 - 最大文件大小: 100MB
 - 支持格式: PDF, EPUB, TXT
 
-#### 7. POST /api/anythingllm/index-book (RAG索引)
-
-**请求**:
-```json
-{
-  "bookId": "uuid-123",
-  "title": "高中数学必修1",
-  "content": "...",
-  "metadata": {...}
-}
-```
-
 ---
 
 ## 5. 部署架构
 
-### 5.1 生产环境 (Docker Compose)
+本项目采用单容器 Docker 部署，前端和后端服务均封装在一个镜像内。
 
-**docker-compose.yml**:
-```yaml
-version: '3.8'
+### 5.1 生产环境
 
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/nginx/ssl
-      - ./frontend/dist:/usr/share/nginx/html
-    depends_on:
-      - backend
-      - anythingllm
-    networks:
-      - hl-network
+直接使用根目录的 deploy.sh 脚本和 Dockerfile 进行部署：
 
-  backend:
-    build: ./backend
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - ANYTHINGLLM_ENDPOINT=http://anythingllm:3001
-      - ANYTHINGLLM_API_KEY=${ANYTHINGLLM_API_KEY}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./backend/uploads:/app/uploads
-    networks:
-      - hl-network
+`ash
+sudo ./deploy.sh
+`
 
-  anythingllm:
-    image: mintplexlabs/anythingllm:latest
-    environment:
-      - STORAGE_DIR=/app/storage
-    ports:
-      - "3001:3001"
-    volumes:
-      - anythingllm_data:/app/storage
-    networks:
-      - hl-network
-
-networks:
-  hl-network:
-    driver: bridge
-
-volumes:
-  anythingllm_data:
-```
-
-### 5.2 Nginx配置
-
-**nginx.conf**:
-```nginx
-upstream backend {
-    server backend:3000;
-}
-
-upstream anythingllm {
-    server anythingllm:3001;
-}
-
-server {
-    listen 80;
-    server_name hl-os.example.com;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name hl-os.example.com;
-
-    ssl_certificate /etc/nginx/ssl/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
-
-    # 静态资源
-    location / {
-        root /usr/share/nginx/html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API代理
-    location /api/ {
-        proxy_pass http://backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-        # 大文件上传
-        client_max_body_size 100M;
-        proxy_request_buffering off;
-    }
-
-    # AnythingLLM代理
-    location /anythingllm/ {
-        proxy_pass http://anythingllm/;
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### 5.3 混合部署方案 (可选)
-
-**架构对比**:
-
-| 组件 | 全 Docker 方案 | 混合部署方案 | 理由 |
-|------|--------------|------------|------|
-| **前端** | Nginx 容器 | 系统 Nginx | 静态文件无需容器隔离 |
-| **后端** | Node 容器 | systemd 服务 | 减少容器开销，原生性能 |
-| **AnythingLLM** | 容器 | 容器 | 第三方服务，隔离更安全 |
-
-**资源消耗对比（2核4G 服务器）**:
-```
-全 Docker 方案:       ~1.35GB
-混合部署方案:         ~1.06GB
-节省: ~300MB 内存 + ~15% CPU
-```
-
-**Systemd服务配置**:
-```ini
-[Unit]
-Description=HL-OS Backend Service
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/hl-os/backend
-Environment="NODE_ENV=production"
-Environment="PORT=3000"
-EnvironmentFile=/opt/hl-os/backend/.env
-ExecStart=/usr/bin/node /opt/hl-os/backend/dist/index.js
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**管理命令**:
-```bash
-# 启动服务
-sudo systemctl start hl-backend
-
-# 查看状态
-sudo systemctl status hl-backend
-
-# 查看日志
-sudo journalctl -u hl-backend -f
-```
-
----
+系统会构建单一容器 	winkle，映射 3000 端口，提供前后端一体化服务。
 
 ---
 
@@ -653,7 +484,7 @@ sudo journalctl -u hl-backend -f
 图书上传后的元数据提取采用**AI 智能识别**方案：
 
 1. **PDF 解析**: 使用 `pdfjs-dist` (Mozilla PDF.js) 提取前 4 页文本内容
-2. **AI 分析**: 使用 Gemini 2.0 Flash 从前 4 页文本中提取结构化元数据
+2. **AI 分析**: 使用火山豆包大模型从前 4 页文本中提取结构化元数据
 3. **字段映射**: AI 返回的 JSON 映射到数据库字段
 4. **降级处理**: AI 失败时使用文件名作为默认书名
 
@@ -678,7 +509,7 @@ sudo journalctl -u hl-backend -f
 
 ### 6.4 AI 提示词设计
 
-Gemini AI 使用结构化提示词提取元数据：
+AI 使用结构化提示词提取元数据：
 
 ```
 你是一个专业的图书元数据提取助手。请从以下教材 PDF 的前 4 页文本中，提取图书的基本信息。
