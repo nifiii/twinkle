@@ -267,6 +267,89 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     } catch { /* 合并失败不影响当前播放，下次重试 */ }
   };
 
+  // MSE 流式播放：将所有分片顺序 appendBuffer 进同一 SourceBuffer
+  // Why: 数据一旦进入 SourceBuffer，音频引擎独立播放，不依赖 JS 主线程
+  //       锁屏导致 JS 暂停时，已缓冲的内容仍可连续播出
+  // Fallback: 若浏览器不支持 audio/mpeg MSE（iOS Safari），退回 chunk-by-chunk
+  const playWithMSE = async () => {
+    const mediaSource = new MediaSource();
+    const audio = audioRef.current || new Audio();
+    audioRef.current = audio;
+    const objectUrl = URL.createObjectURL(mediaSource);
+    audio.src = objectUrl;
+
+    await new Promise<void>(resolve =>
+      mediaSource.addEventListener('sourceopen', resolve, { once: true })
+    );
+
+    let sb: SourceBuffer;
+    try {
+      sb = mediaSource.addSourceBuffer('audio/mpeg');
+    } catch {
+      // audio/mpeg SourceBuffer 不支持（iOS Safari）→ 释放 MSE，由调用方 fallback
+      URL.revokeObjectURL(objectUrl);
+      audio.src = '';
+      throw new Error('MSE_UNSUPPORTED');
+    }
+
+    // 等待 SourceBuffer 完成上一次 append
+    const waitUpdate = () => new Promise<void>(resolve => {
+      if (!sb.updating) { resolve(); return; }
+      sb.addEventListener('updateend', () => resolve(), { once: true });
+    });
+
+    let started = false;
+    for (let i = 0; i < chunks.length; i++) {
+      if (stopRef.current) break;
+      setChunkIdx(i);
+      prefetch(i); // LOOKAHEAD 继续预取
+
+      const needsFetch = !prefetchCache.current.has(i);
+      if (needsFetch) setLoading(true);
+      const b64 = await fetchAudio(i);
+      setLoading(false);
+      if (!b64 || stopRef.current) break;
+
+      try {
+        // base64 → Uint8Array → SourceBuffer
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+        await waitUpdate();
+        if (stopRef.current) break;
+        sb.appendBuffer(bytes.buffer);
+        await waitUpdate();
+      } catch {
+        // SourceBuffer 出错（通常是 stop() 清空了 src）
+        break;
+      }
+
+      // 第一片 append 完毕后立即开始播放（低延迟启动）
+      if (!started) {
+        started = true;
+        audio.play().catch(() => {});
+      }
+    }
+
+    // 通知音频引擎数据已结束
+    if (!stopRef.current && mediaSource.readyState === 'open') {
+      try {
+        await waitUpdate();
+        mediaSource.endOfStream();
+      } catch { /* already closed */ }
+    }
+
+    // 等待播放结束（或被 stop() 中断）
+    if (started && !stopRef.current) {
+      await new Promise<void>(resolve => {
+        audio.addEventListener('ended', () => resolve(), { once: true });
+        audio.addEventListener('error', () => resolve(), { once: true });
+      });
+    }
+
+    URL.revokeObjectURL(objectUrl);
+  };
+
   const stop = useCallback(() => {
     stopRef.current = true;
     if (audioRef.current) {
@@ -355,16 +438,43 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
     }
 
     // ── 分段模式（首次播放）──────────────────────────────────
-    // LOOKAHEAD 保证低延迟；同时后台静默拉取全部分片并合并
-    prefetch(-1);
-    prefetchAllAndMerge(); // fire-and-forget，不阻塞播放
+    // 后台全量预取 + 合并（与播放并行，不阻塞）
+    prefetchAllAndMerge();
 
-    for (let i = 0; i < chunks.length; i++) {
-      if (stopRef.current) break;
-      const ok = await playChunk(i);
-      if (ok) await markStudied();
-      if (!ok || stopRef.current) break;
+    // 优先尝试 MSE 流式播放（数据进入 SourceBuffer 后锁屏不中断）
+    const mseSupported = typeof window.MediaSource !== 'undefined' &&
+      MediaSource.isTypeSupported('audio/mpeg');
+
+    if (mseSupported) {
+      try {
+        await playWithMSE();
+        if (!stopRef.current) await markStudied();
+      } catch (e: any) {
+        if (e?.message !== 'MSE_UNSUPPORTED') {
+          console.warn('[TTS] MSE 播放异常，回退分段模式', e);
+        }
+        // MSE 不支持 → fallback chunk-by-chunk
+        if (!stopRef.current) {
+          prefetch(-1);
+          for (let i = 0; i < chunks.length; i++) {
+            if (stopRef.current) break;
+            const ok = await playChunk(i);
+            if (ok) await markStudied();
+            if (!ok || stopRef.current) break;
+          }
+        }
+      }
+    } else {
+      // MSE 不可用（iOS Safari）→ 直接 chunk-by-chunk
+      prefetch(-1);
+      for (let i = 0; i < chunks.length; i++) {
+        if (stopRef.current) break;
+        const ok = await playChunk(i);
+        if (ok) await markStudied();
+        if (!ok || stopRef.current) break;
+      }
     }
+
     setPlaying(false);
     setChunkIdx(0);
   };
