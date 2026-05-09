@@ -193,7 +193,11 @@ const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: st
   useEffect(() => {
     if (!coursewareId) return;
     fetch(completeAudioUrl + '?_=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
-      .then(r => setHasComplete(r.ok))
+      .then(r => {
+        // 防止 Nginx/Express SPA fallback 把 missing file 的请求返回 200 html
+        const isAudio = r.headers.get('content-type')?.includes('audio');
+        setHasComplete(r.ok && !!isAudio);
+      })
       .catch(() => setHasComplete(false));
   }, [coursewareId, completeAudioUrl]);
 

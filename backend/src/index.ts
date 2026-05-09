@@ -96,7 +96,8 @@ app.use('/api', (req, res) => {
 if (process.env.NODE_ENV === 'production') {
   const PUBLIC_DIR = path.join(process.cwd(), 'public');
   app.use(express.static(PUBLIC_DIR));
-  app.get(/^(?!\/api\/).*/, (_req, res) => {
+  // 排除 /api/, /data/, /uploads/, /covers/，避免静态资源缺失时返回 200 index.html 导致前端误判
+  app.get(/^(?!\/(api|data|uploads|covers)\/).*/, (_req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
   });
 }
