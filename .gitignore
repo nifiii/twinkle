@@ -43,6 +43,11 @@ ssl/
 *.sln
 *.sw?
 
+# 过程内容不同步
+tmp/
+.trae/
+.docs/
+
 # Git worktrees
 .worktrees/
 
