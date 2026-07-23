@@ -19,6 +19,14 @@ export interface RealtimeFrame {
   serialization: number;
 }
 
+export type RealtimeWireData = Buffer | ArrayBuffer | Buffer[];
+
+export function toRealtimeBuffer(data: RealtimeWireData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return Buffer.from(new Uint8Array(data));
+}
+
 function appendUint32(parts: Buffer[], value: number) {
   const field = Buffer.allocUnsafe(4);
   field.writeUInt32BE(value);

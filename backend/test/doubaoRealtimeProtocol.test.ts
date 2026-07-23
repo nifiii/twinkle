@@ -6,6 +6,7 @@ import {
   encodeRealtimeJson,
   parseRealtimeJson,
   REALTIME_MESSAGE_TYPE,
+  toRealtimeBuffer,
 } from '../src/services/doubaoRealtimeProtocol.js';
 
 test('encodes and decodes realtime JSON frames with event and session id', () => {
@@ -36,4 +37,11 @@ test('decodes server error frames without expecting a session id', () => {
   assert.equal(decoded.messageType, REALTIME_MESSAGE_TYPE.ERROR);
   assert.equal(decoded.event, 401);
   assert.deepEqual(decoded.payload, payload);
+});
+
+test('normalizes every ws RawData representation before decoding', () => {
+  const bytes = Buffer.from([0x11, 0x22, 0x33, 0x44]);
+  assert.deepEqual(toRealtimeBuffer(bytes), bytes);
+  assert.deepEqual(toRealtimeBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), bytes);
+  assert.deepEqual(toRealtimeBuffer([bytes.subarray(0, 2), bytes.subarray(2)]), bytes);
 });
