@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { normalizeSubject } from '../utils/subject.js';
+import { initJobDatabase } from './jobs.js';
 
 const DATA_DIR = process.env.DATA_DIR || '/opt/twinkle/data';
 const DB_PATH = path.join(DATA_DIR, 'hlos.db');
@@ -145,6 +146,8 @@ export function initDatabase() {
     )
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_analyze_tasks_createdAt ON analyze_tasks(createdAt)`);
+
+  initJobDatabase(db);
 
   console.log('[Database] 数据库初始化完成');
 

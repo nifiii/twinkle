@@ -47,6 +47,13 @@ COPY backend/tsconfig.json ./
 
 RUN npm run build
 
+# 验证目标仅在 CI/本地显式 --target backend-test 时执行，避免测试依赖进入生产镜像。
+FROM backend-builder AS backend-test
+
+COPY backend/test ./test
+
+RUN npm test
+
 # ================================
 # Stage 3: 运行环境
 # ================================
