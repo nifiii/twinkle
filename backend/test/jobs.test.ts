@@ -63,6 +63,15 @@ test('recovers expired leases and retries only a failed stage for its owner', ()
   assert.equal(store.getForOwner(id, 'owner-b'), null);
 });
 
+test('keeps a running lease alive until its handler finishes', () => {
+  const store = createStore();
+  const id = submit(store, 'renewed-lease', 1);
+  assert.equal(store.claimNext('worker', 10, 30_000)?.id, id);
+  assert.equal(store.renewLease(id, 20_000, 30_000), true);
+  assert.equal(store.recoverExpiredLeases(30_001), 0);
+  assert.equal(store.get(id)?.status, 'running');
+});
+
 test('records stage timing and does not over-allocate model permits', () => {
   const store = createStore();
   const id = submit(store, 'timing', 10);

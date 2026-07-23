@@ -19,11 +19,13 @@ import dashboardRouter from './routes/dashboard.js';
 import jobsRouter from './routes/jobs.js';
 import { cleanupTempChunks } from './utils/cleanup.js';
 import { initDatabase } from './services/databaseService.js';
+import { startJobScheduler } from './services/jobRuntime.js';
 
 dotenv.config();
 
 // 初始化数据库
 initDatabase();
+startJobScheduler();
 
 // 拍题异步任务：启动恢复 + 每小时清理 24h 之前的记录
 initAnalyzeTasks();

@@ -46,6 +46,8 @@ type StageTimings = Record<string, StageTiming>;
 const ACTIVE_STATUSES: JobStatus[] = ['queued', 'running'];
 const MAX_ACCEPTED_JOBS = 10;
 const MAX_RUNNING_JOBS = 3;
+const JOB_LEASE_MS = 30_000;
+const JOB_LEASE_RENEWAL_MS = 10_000;
 
 /**
  * Initializes the independent job contract without modifying legacy task tables.
@@ -283,6 +285,12 @@ export class JobStore {
 
 export type JobHandler = (job: JobRecord) => Promise<string>;
 
+export class JobExecutionError extends Error {
+  constructor(public readonly errorCode: string, message: string) {
+    super(message);
+  }
+}
+
 /**
  * Runs at most three jobs at a time. Handlers are registered by T-004 through
  * T-006, so introducing this scheduler does not alter legacy request handling.
@@ -300,7 +308,7 @@ export class JobScheduler {
   async tick(now = Date.now()): Promise<void> {
     this.store.recoverExpiredLeases(now);
     while (this.active < MAX_RUNNING_JOBS) {
-      const job = this.store.claimNext(this.workerId, now, 30_000, [...this.handlers.keys()]);
+      const job = this.store.claimNext(this.workerId, now, JOB_LEASE_MS, [...this.handlers.keys()]);
       if (!job) return;
       const handler = this.handlers.get(job.type);
       if (!handler) {
@@ -308,10 +316,19 @@ export class JobScheduler {
       }
 
       this.active++;
+      // Why: model calls can legitimately exceed the 30s crash-recovery lease.
+      // Renewing while the promise is live avoids re-dispatching healthy work.
+      const renewLease = setInterval(() => this.store.renewLease(job.id, Date.now(), JOB_LEASE_MS), JOB_LEASE_RENEWAL_MS);
       void handler(job)
         .then(resultRef => this.store.complete(job.id, resultRef))
-        .catch(() => this.store.fail(job.id, 'JOB_EXECUTION_FAILED'))
-        .finally(() => { this.active--; });
+        .catch((error: unknown) => this.store.fail(
+          job.id,
+          error instanceof JobExecutionError ? error.errorCode : 'JOB_EXECUTION_FAILED',
+        ))
+        .finally(() => {
+          clearInterval(renewLease);
+          this.active--;
+        });
     }
   }
 }
@@ -334,6 +351,13 @@ export class ModelSlotPool {
   release(kind: ModelSlotKind): void {
     if (this.inUse[kind] === 0) throw new Error(`Model slot ${kind} was released without being acquired.`);
     this.inUse[kind]--;
+  }
+
+  async acquire(kind: ModelSlotKind): Promise<() => void> {
+    while (!this.tryAcquire(kind)) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return () => this.release(kind);
   }
 
   snapshot(): Readonly<Record<ModelSlotKind, number>> {

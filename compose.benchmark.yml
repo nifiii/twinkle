@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      # Why: the benchmark reuses the existing account only at execution time;
+      # the Compose file never names or stores a credential-bearing file.
+      - path: ${BENCHMARK_ENV_FILE:?Set BENCHMARK_ENV_FILE to an approved .env file}
+        required: true
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATA_DIR: /opt/twinkle/benchmark-data
+      # Why: benchmark results must use the T-001A-approved low-latency vision
+      # model even when the developer .env still carries a legacy override.
+      ARK_VISION_MODEL_ID: ${BENCHMARK_VISION_MODEL_ID:-doubao-seed-2-0-lite-260428}
+    ports:
+      - "127.0.0.1:${BENCHMARK_PORT:-3107}:3000"
+    volumes:
+      - benchmark-data:/opt/twinkle/benchmark-data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 20s
+
+volumes:
+  benchmark-data:
