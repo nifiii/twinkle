@@ -95,3 +95,17 @@ test('does not claim types whose workers have not been migrated', () => {
   assert.equal(store.claimNext('worker', 2, 30_000, ['ocr']), null);
   assert.equal(store.get(id)?.status, 'queued');
 });
+
+test('reserves a completing job slot for its durable follow-up', () => {
+  const store = createStore();
+  const ids = Array.from({ length: jobLimits.maxAccepted }, (_, index) => submit(store, `reserved-${index}`, index));
+  const completingId = ids[0];
+  assert.equal(store.claimNext('worker', 20)?.id, completingId);
+
+  const followUp = store.submitReplacing({
+    type: 'courseware', ownerId: 'owner-a', requestKey: 'courseware-extension', payloadRef: '/files/extension', stage: 'extension_model',
+  }, completingId, 21);
+  assert.equal(followUp.accepted, true);
+  assert.equal(store.complete(completingId, 'result://core', 22), true);
+  assert.equal(store.listByStatus('queued').length + store.listByStatus('running').length, jobLimits.maxAccepted);
+});

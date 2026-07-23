@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Sparkles, GraduationCap, Loader2, CheckCircle, AlertCircle, MessageSquare, ChevronDown, ChevronUp, Save, RefreshCw, X } from 'lucide-react';
+import { FileText, Sparkles, GraduationCap, Loader2, CheckCircle, AlertCircle, MessageSquare, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { EBook, ChapterNode, ScannedItem } from '../types';
 
 interface CoursewareGeneratorProps {
@@ -78,17 +78,49 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
 }) => {
   const [selectedStyle, setSelectedStyle] = useState<TeachingStyle>('rigorous');
   const [generating, setGenerating] = useState(false);
-  const [savingPreview, setSavingPreview] = useState<LessonSection[] | null>(null); // 预览中的 sections（未确认保存）
   const [savedSections, setSavedSections] = useState<LessonSection[]>([]); // 已保存的 sections
   const [savedId, setSavedId] = useState<string>('');
+  const [extensionStatus, setExtensionStatus] = useState<'idle' | 'generating' | 'completed' | 'failed'>('idle');
+  const [extensionError, setExtensionError] = useState('');
   const [error, setError] = useState<string>('');
 
-  // 生成（仅预览，不立即保存）
+  const notifyCoursewareReady = (sections: LessonSection[]) => {
+    onCoursewareReady?.(sections.map(section => `## ${section.title}\n${section.content}`).join('\n\n'));
+  };
+
+  const pollExtension = async (taskId: string) => {
+    try {
+      setExtensionStatus('generating');
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const response = await fetch(`/api/generate-courseware/task/${taskId}?ownerId=${encodeURIComponent(ownerId || 'shared')}`);
+        if (!response.ok) continue;
+        const task = (await response.json()).data;
+        if (task.status === 'failed') {
+          setExtensionStatus('failed');
+          setExtensionError(task.error || '扩展讲解暂未完成，核心课件仍可正常使用');
+          return;
+        }
+        if (task.status === 'completed' && task.result?.slides) {
+          setSavedSections(task.result.slides);
+          notifyCoursewareReady(task.result.slides);
+          setExtensionStatus('completed');
+          return;
+        }
+      }
+    } catch {
+      setExtensionStatus('failed');
+      setExtensionError('扩展讲解状态读取失败，核心课件仍可正常使用');
+    }
+  };
+
+  // 核心课件完成即由服务端保存，扩展讲解不阻塞可用结果。
   const handleGenerate = async () => {
     try {
       setGenerating(true);
       setError('');
-      setSavingPreview(null);
+      setExtensionStatus('idle');
+      setExtensionError('');
 
       const response = await fetch('/api/generate-courseware', {
         method: 'POST',
@@ -101,8 +133,7 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
           studentName,
           subject: selectedBook.subject,
           teachingStyle: selectedStyle,
-          autoSave: false,
-          wrongProblems: wrongProblems.slice(0, 10),
+          wrongProblems,
           ownerId: ownerId || 'shared',
         }),
       });
@@ -112,70 +143,35 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
         throw new Error(errorData.error || `生成失败 (${response.status})`);
       }
 
-      const result = await response.json();
-      if (!result.success) throw new Error(result.error || '生成失败');
-
-      setSavingPreview(result.data);
+      const submission = await response.json();
+      if (!submission.success || !submission.data?.taskId) throw new Error(submission.error || '课件任务提交失败');
+      const startedAt = Date.now();
+      const taskId = submission.data.taskId;
+      while (Date.now() - startedAt < 10 * 60 * 1000) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const taskResponse = await fetch(`/api/generate-courseware/task/${taskId}?ownerId=${encodeURIComponent(ownerId || 'shared')}`);
+        if (!taskResponse.ok) continue;
+        const task = (await taskResponse.json()).data;
+        if (task.status === 'failed') throw new Error(task.error || '课件生成失败');
+        if (task.status === 'completed' && task.result?.slides && task.result?.coursewareId) {
+          setSavedSections(task.result.slides);
+          setSavedId(task.result.coursewareId);
+          notifyCoursewareReady(task.result.slides);
+          if (task.result.extensionJobId) void pollExtension(task.result.extensionJobId);
+          else if (task.result.extensionStatus === 'failed') {
+            setExtensionStatus('failed');
+            setExtensionError('扩展讲解暂未排入队列，核心课件仍可正常使用');
+          }
+          return;
+        }
+      }
+      throw new Error('课件生成超时，请稍后重试');
     } catch (err) {
       console.error('生成课件失败:', err);
       setError(err instanceof Error ? err.message : '生成失败，请重试');
     } finally {
       setGenerating(false);
     }
-  };
-
-  // 用户在预览模态中点"保存"
-  const handleConfirmSave = async () => {
-    if (!savingPreview) return;
-    try {
-      setGenerating(true);
-      setError('');
-
-      const response = await fetch('/api/generate-courseware', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookTitle: selectedBook.title,
-          chapters: selectedChapters.map(c => c.title),
-          chapter: selectedChapters.map(c => c.title).join('；'),
-          studentName,
-          subject: selectedBook.subject,
-          teachingStyle: selectedStyle,
-          autoSave: true,
-          wrongProblems: wrongProblems.slice(0, 10),
-          ownerId: ownerId || 'shared',
-          // 复用已生成的 sections，避免再次调用 LLM
-          existingSections: savingPreview,
-        }),
-      });
-      const result = await response.json();
-      if (!result.success) throw new Error(result.error || '保存失败');
-
-      const finalSections = result.data || savingPreview;
-      setSavedSections(finalSections);
-      setSavedId(result.id || '');
-      setSavingPreview(null);
-
-      // 通知父组件课件就绪，给测验使用
-      const fullText = finalSections.map((s: LessonSection) => `## ${s.title}\n${s.content}`).join('\n\n');
-      onCoursewareReady?.(fullText);
-    } catch (err) {
-      console.error('保存课件失败:', err);
-      setError(err instanceof Error ? err.message : '保存失败，请重试');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  // 重新生成
-  const handleRegenerate = () => {
-    setSavingPreview(null);
-    handleGenerate();
-  };
-
-  // 关闭预览（放弃）
-  const handleCloseModal = () => {
-    setSavingPreview(null);
   };
 
   return (
@@ -229,7 +225,7 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
             disabled={generating}
             className="w-full mt-6 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:bg-gray-400"
           >
-            {generating ? <><Loader2 className="w-4 h-4 animate-spin" />生成中...</> : <><Sparkles className="w-4 h-4" />生成课件预览</>}
+            {generating ? <><Loader2 className="w-4 h-4 animate-spin" />生成中...</> : <><Sparkles className="w-4 h-4" />生成核心课件</>}
           </button>
 
           {error && (
@@ -262,6 +258,9 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
                   <GraduationCap className="w-3 h-3" />已同步到 AI 课堂
                 </span>
               )}
+              {extensionStatus === 'generating' && <span className="text-xs text-blue-700">扩展讲解生成中</span>}
+              {extensionStatus === 'completed' && <span className="text-xs text-green-700">扩展讲解已补全</span>}
+              {extensionStatus === 'failed' && <span className="text-xs text-amber-700">扩展讲解未完成</span>}
             </div>
             <button
               onClick={() => { setSavedSections([]); setSavedId(''); }}
@@ -270,6 +269,12 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
               <RefreshCw className="w-3.5 h-3.5" />重新生成
             </button>
           </div>
+
+          {extensionStatus === 'failed' && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />{extensionError}
+            </div>
+          )}
 
           <div className="space-y-4">
             {savedSections.map((s, i) => (
@@ -285,51 +290,13 @@ export const CoursewareGenerator: React.FC<CoursewareGeneratorProps> = ({
           <div className="bg-white rounded-2xl px-8 py-6 shadow-2xl flex items-center gap-4">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
             <div>
-              <div className="font-semibold text-gray-800">AI 正在生成内容</div>
-              <div className="text-sm text-gray-500 mt-0.5">请稍候，此过程可能需要 30 秒至 2 分钟</div>
+              <div className="font-semibold text-gray-800">AI 正在生成核心课件</div>
+              <div className="text-sm text-gray-500 mt-0.5">核心课件保存后即可使用，扩展讲解会继续补全</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 预览模态：用户选择保存或重新生成 */}
-      {savingPreview && !generating && (
-        <div className="fixed inset-0 z-[250] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 pb-24 md:pb-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-gray-800">课件预览（{savingPreview.length} 节）</h3>
-                <span className="text-xs text-gray-500">— 请确认是否保存</span>
-              </div>
-              <button onClick={handleCloseModal} className="p-1.5 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-3">
-              {savingPreview.map((s, i) => (
-                <SectionCard key={s.index} section={s} isLast={i === savingPreview.length - 1} />
-              ))}
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex gap-3 justify-end">
-              <button
-                onClick={handleRegenerate}
-                className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-white text-sm font-medium"
-              >
-                <RefreshCw className="w-4 h-4" />重新生成
-              </button>
-              <button
-                onClick={handleConfirmSave}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-              >
-                <Save className="w-4 h-4" />保存到 AI 课堂
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

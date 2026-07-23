@@ -109,6 +109,19 @@ export class JobStore {
   constructor(private readonly db: Database.Database) {}
 
   submit(input: SubmitJobInput, now = Date.now()): SubmitJobResult {
+    return this.submitWithCapacity(input, now);
+  }
+
+  /**
+   * Queues a follow-up only after its running predecessor has persisted a usable
+   * result. Excluding that predecessor preserves the ten-user-task capacity once
+   * the scheduler marks it complete, without dropping the follow-up at the edge.
+   */
+  submitReplacing(input: SubmitJobInput, replacingJobId: string, now = Date.now()): SubmitJobResult {
+    return this.submitWithCapacity(input, now, replacingJobId);
+  }
+
+  private submitWithCapacity(input: SubmitJobInput, now: number, replacingJobId?: string): SubmitJobResult {
     const submitTx = this.db.transaction((): SubmitJobResult => {
       const existing = this.getByRequestKey(input.ownerId, input.requestKey);
       if (existing) {
@@ -121,8 +134,9 @@ export class JobStore {
       }
 
       const active = this.db.prepare(`
-        SELECT COUNT(*) AS count FROM jobs WHERE status IN ('queued', 'running')
-      `).get() as { count: number };
+        SELECT COUNT(*) AS count FROM jobs
+        WHERE status IN ('queued', 'running')${replacingJobId ? ' AND id != ?' : ''}
+      `).get(...(replacingJobId ? [replacingJobId] : [])) as { count: number };
       if (active.count >= MAX_ACCEPTED_JOBS) {
         return { accepted: false, idempotent: false, errorCode: 'QUEUE_FULL' };
       }
