@@ -2,6 +2,7 @@ export const REALTIME_MESSAGE_TYPE = {
   CLIENT_JSON: 0b0001,
   CLIENT_AUDIO: 0b0010,
   SERVER_JSON: 0b1001,
+  SERVER_ACK: 0b1010,
   SERVER_AUDIO: 0b1011,
   ERROR: 0b1111,
 } as const;
@@ -25,6 +26,11 @@ export function toRealtimeBuffer(data: RealtimeWireData): Buffer {
   if (Buffer.isBuffer(data)) return data;
   if (Array.isArray(data)) return Buffer.concat(data);
   return Buffer.from(new Uint8Array(data));
+}
+
+// ACK 仅确认传输顺序，不带业务 sessionId，不能走完整业务帧解码。
+export function isRealtimeAck(data: Buffer): boolean {
+  return data.length >= HEADER_SIZE && (data[1] >> 4) === REALTIME_MESSAGE_TYPE.SERVER_ACK;
 }
 
 function appendUint32(parts: Buffer[], value: number) {

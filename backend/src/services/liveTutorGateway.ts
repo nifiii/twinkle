@@ -8,6 +8,7 @@ import {
   encodeRealtimeJson,
   parseRealtimeJson,
   REALTIME_MESSAGE_TYPE,
+  isRealtimeAck,
   toRealtimeBuffer,
 } from './doubaoRealtimeProtocol.js';
 
@@ -169,7 +170,9 @@ export function attachLiveTutorGateway(server: HttpServer) {
     });
     upstream.on('message', raw => {
       try {
-        const frame = decodeRealtimeFrame(toRealtimeBuffer(raw));
+        const data = toRealtimeBuffer(raw);
+        if (isRealtimeAck(data)) return;
+        const frame = decodeRealtimeFrame(data);
         if (frame.messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO && frame.event === TTS_RESPONSE) {
           sendBrowser(client, { type: 'audio', data: frame.payload.toString('base64') });
           return;
