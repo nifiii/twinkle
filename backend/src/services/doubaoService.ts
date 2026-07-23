@@ -4,6 +4,13 @@ import fs from 'fs/promises';
 import path from 'path';
 import { extractPagesAsImages } from './imageService.js';
 
+export interface RenderedPdfPages {
+  directory: string;
+  fileNames: string[];
+}
+
+export type ModelPermit = () => Promise<() => void>;
+
 // 初始化 OpenAI 客户端 (适配火山引擎)
 const getDoubaoClient = () => {
   const apiKey = process.env.ARK_API_KEY;
@@ -105,16 +112,18 @@ export async function analyzeMetadataWithDoubao(
  */
 export async function extractMetadataFromPDFWithDoubao(
   pdfPath: string,
-  fileName: string
+  fileName: string,
+  renderedPages?: RenderedPdfPages,
+  acquireVision?: ModelPermit,
 ): Promise<DoubaoMetadataResult> {
   const { client, model } = getDoubaoClient();
 
   // 1. 调用本地 PDF 封面(或前几页)抽取服务提取多张图片
-  const tempDir = path.join(process.cwd(), 'uploads', 'covers');
+  const tempDir = renderedPages?.directory || path.join(process.cwd(), 'uploads', 'covers');
   let extractedImages: string[] = [];
   try {
-    // 根据需求，提取前4页以确保涵盖了封面、扉页、版权页以及目录等元信息
-    extractedImages = await extractPagesAsImages(pdfPath, tempDir, 4);
+    // Reuse the full-book render when a job has already produced it.
+    extractedImages = renderedPages?.fileNames.slice(0, 4) || await extractPagesAsImages(pdfPath, tempDir, 4);
     if (!extractedImages || extractedImages.length === 0) {
       throw new Error("未能生成任何封面图片");
     }
@@ -195,16 +204,22 @@ export async function extractMetadataFromPDFWithDoubao(
   console.log(`[Doubao][Vision] >>> 开始请求 model=${model} fileName=${fileName} images=${base64Images.length}`);
 
   try {
-    const response = await client.chat.completions.create({
-      model: model,
-      temperature: 0.1,
-      messages: [
-        {
-          role: "user",
-          content: messageContent
-        }
-      ],
-    });
+    const release = acquireVision ? await acquireVision() : undefined;
+    let response: any;
+    try {
+      response = await client.chat.completions.create({
+        model: model,
+        temperature: 0.1,
+        messages: [
+          {
+            role: "user",
+            content: messageContent
+          }
+        ],
+      });
+    } finally {
+      release?.();
+    }
     const elapsedVision = Date.now() - t0Vision;
     const usageVision = response.usage;
     console.log(`[Doubao][Vision] <<< 完成 耗时=${elapsedVision}ms prompt_tokens=${usageVision?.prompt_tokens} completion_tokens=${usageVision?.completion_tokens}`);
@@ -251,16 +266,19 @@ export async function extractMetadataFromPDFWithDoubao(
  */
 export async function convertPDFToMarkdownWithDoubaoOCR(
   pdfPath: string,
-  fileName: string
+  fileName: string,
+  renderedPages?: RenderedPdfPages,
+  acquireVision?: ModelPermit,
 ): Promise<string> {
   const { client, model } = getDoubaoClient();
-  const tempDir = path.join(process.cwd(), 'uploads', 'temp_ocr');
+  const tempDir = renderedPages?.directory || path.join(process.cwd(), 'uploads', 'temp_ocr');
+  const ownsRenderedPages = !renderedPages;
 
   let extractedImages: string[] = [];
   try {
     // 1. 调用本地服务提取所有页面为图片 (pageCount = -1 表示提取全部)
     console.log(`[OCR] 开始提取全本 PDF 图片: ${pdfPath}`);
-    extractedImages = await extractPagesAsImages(pdfPath, tempDir, -1);
+    extractedImages = renderedPages?.fileNames || await extractPagesAsImages(pdfPath, tempDir, -1);
     if (!extractedImages || extractedImages.length === 0) {
       throw new Error("未能生成任何 PDF 页面图片");
     }
@@ -328,15 +346,21 @@ export async function convertPDFToMarkdownWithDoubaoOCR(
     while (retryCount <= maxRetries && !success) {
       const tBatch = Date.now();
       try {
+        const release = acquireVision ? await acquireVision() : undefined;
         console.log(`[Doubao][OCR] >>> 批次 ${batchIndex + 1}/${totalBatches} 开始请求 model=${model}`);
-        const response = await client.chat.completions.create({
-          model: model,
-          temperature: 0.1,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: messageContent }
-          ]
-        } as any);
+        let response: any;
+        try {
+          response = await client.chat.completions.create({
+            model: model,
+            temperature: 0.1,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: messageContent }
+            ]
+          } as any);
+        } finally {
+          release?.();
+        }
 
         const elapsedBatch = Date.now() - tBatch;
         const usageBatch = response.usage;
@@ -387,12 +411,14 @@ export async function convertPDFToMarkdownWithDoubaoOCR(
   await Promise.all(activePromises);
 
   // 3. 清理临时目录下的本批图片
-  console.log(`[OCR] 所有并行批次转换完毕，正在清理 ${extractedImages.length} 个临时图片文件...`);
-  for (const imgName of extractedImages) {
-    try {
-      await fs.unlink(path.join(tempDir, imgName));
-    } catch (e) {
-      // ignore
+  if (ownsRenderedPages) {
+    console.log(`[OCR] 所有并行批次转换完毕，正在清理 ${extractedImages.length} 个临时图片文件...`);
+    for (const imgName of extractedImages) {
+      try {
+        await fs.unlink(path.join(tempDir, imgName));
+      } catch (e) {
+        // ignore
+      }
     }
   }
 
@@ -463,7 +489,8 @@ const CONVERT_SYSTEM_PROMPT = `你是一个专业的中文教材排版专家，�
  * 策略：小分片(6k字符) + 全并发(≤6个同时) → 大幅缩短总耗时
  */
 export async function convertToMarkdownWithDoubao(
-  text: string
+  text: string,
+  acquireText?: ModelPermit,
 ): Promise<string> {
   const { client, model } = getDoubaoClient();
 
@@ -484,19 +511,25 @@ export async function convertToMarkdownWithDoubao(
     while (retryCount <= maxRetries) {
       const t0 = Date.now();
       try {
+        const release = acquireText ? await acquireText() : undefined;
         console.log(`[Doubao][convertMD] >>> 分片 ${idx + 1}/${totalChunks} 开始 len=${chunk.length} retry=${retryCount}`);
-        const completion = await client.chat.completions.create({
-          model,
-          temperature: 0.1,
-          max_tokens: 8192,
-          messages: [
-            { role: 'system', content: CONVERT_SYSTEM_PROMPT },
-            {
-              role: 'user',
-              content: `这是文档第 ${idx + 1}/${totalChunks} 部分，请转换为 Markdown：\n\n${chunk}`
-            }
-          ]
-        } as any);
+        let completion: any;
+        try {
+          completion = await client.chat.completions.create({
+            model,
+            temperature: 0.1,
+            max_tokens: 8192,
+            messages: [
+              { role: 'system', content: CONVERT_SYSTEM_PROMPT },
+              {
+                role: 'user',
+                content: `这是文档第 ${idx + 1}/${totalChunks} 部分，请转换为 Markdown：\n\n${chunk}`
+              }
+            ]
+          } as any);
+        } finally {
+          release?.();
+        }
 
         const elapsed = Date.now() - t0;
         const usage = completion.usage;

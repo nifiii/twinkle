@@ -240,6 +240,15 @@ export class JobStore {
     `).run(notBefore, id, ownerId).changes === 1;
   }
 
+  setStage(id: string, stage: string, now = Date.now()): boolean {
+    const job = this.get(id);
+    if (!job || job.status !== 'running' || job.stage === stage) return false;
+    this.finishStage(id, job.stage, now);
+    this.db.prepare('UPDATE jobs SET stage = ? WHERE id = ? AND status = \'running\'').run(stage, id);
+    this.startStage(id, stage, now);
+    return true;
+  }
+
   get(id: string): JobRecord | null {
     return (this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as JobRecord | undefined) || null;
   }

@@ -9,6 +9,8 @@ import { extractMetadataFromFileName } from '../services/geminiMetadataExtractor
 import { analyzeMetadata, convertToMarkdown } from '../services/llmService.js';
 import { extractPagesAsImages } from '../services/imageService.js';
 import { extractMetadataFromPDFWithDoubao } from '../services/doubaoService.js';
+import { getBookJobResult, submitBookJob } from '../services/bookJobs.js';
+import { jobStore } from '../services/jobRuntime.js';
 
 const router = express.Router();
 
@@ -75,21 +77,28 @@ router.post('/upload-book', async (req, res, next) => {
     }
 
     const file = req.file;
+    const ownerId = typeof req.body.ownerId === 'string' && req.body.ownerId ? req.body.ownerId : 'shared';
     const fileFormat = getFileFormat(file.mimetype);
-    
-    // multer.diskStorage 会自动将文件存入 TEMP_DIR
-    // 返回相对路径供前端后续调用 /parse 接口
     const relativeTempPath = `/uploads/temp/${file.filename}`;
+    const submission = await submitBookJob({
+      sourcePath: path.join(TEMP_DIR, file.filename), fileName: file.originalname, ownerId,
+      fileHash: typeof req.body.fileHash === 'string' ? req.body.fileHash : undefined,
+    });
+    if (!submission.accepted) {
+      await fs.unlink(path.join(TEMP_DIR, file.filename)).catch(() => undefined);
+      return res.status(429).json({ success: false, error: '当前任务队列已满，请稍后重试' });
+    }
 
-    console.log(`[upload-book] 文件上传成功 (磁盘存储): ${file.originalname} -> ${file.filename}`);
+    console.log(`[upload-book] 文件上传并入队: ${file.originalname} -> ${submission.job!.id}`);
 
-    return res.json({
+    return res.status(202).json({
       success: true,
       data: {
         fileName: file.originalname,
         fileFormat,
         fileSize: file.size,
-        tempFilePath: relativeTempPath
+        tempFilePath: relativeTempPath,
+        taskId: submission.job!.id,
       },
     });
   } catch (error) {
@@ -98,6 +107,24 @@ router.post('/upload-book', async (req, res, next) => {
       success: false,
       error: error instanceof Error ? error.message : '文件上传失败',
     });
+  }
+});
+
+router.get('/upload-book/task/:id', async (req: Request, res: Response) => {
+  const ownerId = typeof req.query.ownerId === 'string' && req.query.ownerId ? req.query.ownerId : 'shared';
+  const job = jobStore.getForOwner(req.params.id, ownerId);
+  if (!job || job.type !== 'book') return res.status(404).json({ success: false, error: '图书任务不存在' });
+  try {
+    return res.json({
+      success: true,
+      data: {
+        id: job.id, status: job.status, stage: job.stage, queuePosition: jobStore.getQueuePosition(job.id),
+        error: job.status === 'failed' ? '图书解析失败，请重试' : undefined,
+        result: await getBookJobResult(job),
+      },
+    });
+  } catch {
+    return res.status(500).json({ success: false, error: '图书任务结果读取失败' });
   }
 });
 

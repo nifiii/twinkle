@@ -1,4 +1,4 @@
-import { analyzeMetadataWithDoubao, convertToMarkdownWithDoubao } from './doubaoService.js';
+import { analyzeMetadataWithDoubao, convertToMarkdownWithDoubao, ModelPermit } from './doubaoService.js';
 import { ChapterNode } from '../types.js';
 
 export type LLMProvider = 'doubao';
@@ -33,8 +33,9 @@ export async function analyzeMetadata(
  */
 export async function convertToMarkdown(
   text: string,
-  provider?: LLMProvider
+  provider?: LLMProvider,
+  acquireText?: ModelPermit,
 ): Promise<string> {
   console.log(`正在使用 doubao 服务转换 Markdown...`);
-  return convertToMarkdownWithDoubao(text);
+  return convertToMarkdownWithDoubao(text, acquireText);
 }

@@ -76,9 +76,11 @@ test('records stage timing and does not over-allocate model permits', () => {
   const store = createStore();
   const id = submit(store, 'timing', 10);
   store.claimNext('worker', 15);
+  assert.equal(store.setStage(id, 'save', 25), true);
   store.complete(id, 'result://timing', 35);
   const timings = JSON.parse(store.get(id)!.stageTimingsJson);
-  assert.deepEqual(timings.model, { startedAt: 15, completedAt: 35, durationMs: 20 });
+  assert.deepEqual(timings.model, { startedAt: 15, completedAt: 25, durationMs: 10 });
+  assert.deepEqual(timings.save, { startedAt: 25, completedAt: 35, durationMs: 10 });
 
   const slots = new ModelSlotPool({ vision: 1, text: 1 });
   assert.equal(slots.tryAcquire('vision'), true);
