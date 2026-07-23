@@ -3,8 +3,7 @@ import { Upload, FileText, Loader2, CheckCircle, AlertCircle } from 'lucide-reac
 import { EBook, IndexStatus } from '../types';
 import { useChunkedUpload, ChunkedUploadResult } from '../hooks/useChunkedUpload';
 import UploadProgressBar from './UploadProgressBar';
-import BookMetadataModal from './BookMetadataModal';
-import { confirmBookUpload, checkFileHash } from '../services/apiService';
+import { checkFileHash } from '../services/apiService';
 import { calculateFileHash } from '../utils/hashUtils';
 
 interface UploadResult {
@@ -88,6 +87,7 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
   const [showEditor, setShowEditor] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
+  const [processingStage, setProcessingStage] = useState('');
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -112,9 +112,10 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
     setSuccess(false);
 
     // 计算哈希并查重
+    let fileHash = '';
     try {
-      const hash = await calculateFileHash(file);
-      const duplicate = await checkFileHash(hash);
+      fileHash = await calculateFileHash(file);
+      const duplicate = await checkFileHash(fileHash);
       
       if (duplicate) {
         const uploadDate = new Date(duplicate.timestamp).toLocaleDateString();
@@ -124,7 +125,7 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
       }
       
       // 保存哈希值供后续使用
-      setUploadResult(prev => ({ ...prev, fileHash: hash } as any));
+      setUploadResult(prev => ({ ...prev, fileHash } as any));
     } catch (err) {
       console.error('哈希计算失败:', err);
       // 失败不中断流程
@@ -132,104 +133,47 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
 
     console.log('📤 开始上传图书，端点: /api/upload-book (全量流式)');
     // 使用单文件流式上传 (已改为磁盘存储，不会超时)
-    const result = await uploadFile(file, ownerId, '/api/upload-book');
+    const result = await uploadFile(file, ownerId, '/api/upload-book', fileHash ? { fileHash } : undefined);
 
     if (result.success && result.data) {
-      // 第一阶段：上传完成
-      console.log('✅ 文件上传已就绪，进入智析阶段:', result.data);
-      const tempFilePath = result.data.tempFilePath;
-      
       try {
-        // 第二阶段：发起独立的异步解析请求
-        console.log('✅ 文件上传已完成，正在智析内容...');
         setIsParsing(true);
+        setProcessingStage('已上传，正在排队...');
         setError('');
-
-        const parseResponse = await fetch('/api/upload-book/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filePath: tempFilePath, fileName: file.name })
-        });
-        
-        const parseResult = await parseResponse.json();
-        setIsParsing(false);
-        
-        if (!parseResult.success) {
-          throw new Error(parseResult.error || '书籍内容智析失败');
+        const taskId = result.data.taskId;
+        if (!taskId) throw new Error('图书任务未创建');
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 15 * 60 * 1000) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const response = await fetch(`/api/upload-book/task/${taskId}?ownerId=${encodeURIComponent(ownerId)}`);
+          if (!response.ok) continue;
+          const task = (await response.json()).data;
+          if (task.status === 'queued') {
+            setProcessingStage(`正在排队，当前第 ${task.queuePosition || 1} 位...`);
+            continue;
+          }
+          if (task.status === 'running') {
+            setProcessingStage(`正在${task.stage === 'render_pages' ? '转图' : task.stage === 'markdown' ? '生成 Markdown' : '解析图书'}...`);
+            continue;
+          }
+          if (task.status === 'failed') throw new Error(task.error || '图书解析失败');
+          if (task.status === 'completed') break;
         }
-
-        const parseData = parseResult.data;
-        console.log('✅ 图书智能解析成功:', parseData);
-
-        // 更新 uploadResult，包含解析后的元数据和置信度
-        setUploadResult(prev => ({
-          success: true,
-          filePath: '', // 兼容字段
-          tempFilePath: parseData.tempFilePath || tempFilePath, 
-          fileHash: (prev as any)?.fileHash, 
-          metadata: {
-            ...parseData.metadata,
-            fileName: parseData.fileName,
-            fileFormat: parseData.fileFormat,
-            fileSize: parseData.fileSize,
-            pageCount: parseData.pageCount,
-          },
-          confidence: parseData.confidence,
-          extractionMethod: parseData.extractionMethod
-        }));
-
+        if (Date.now() - startedAt >= 15 * 60 * 1000) throw new Error('图书解析超时，请稍后在书架查看结果');
         setSuccess(true);
-        // 直接显示编辑器
-        setShowEditor(true);
+        onMetadataConfirmed();
+        setSelectedFile(null);
+        setUploadResult(null);
+        resetProgress();
       } catch (err: any) {
-        console.error('书籍智析环节失败:', err);
+        console.error('书籍任务失败:', err);
+        setError(`上传成功，但图书解析失败: ${err.message}`);
+      } finally {
         setIsParsing(false);
-        setError(`上传成功，但内容智析失败: ${err.message}`);
+        setProcessingStage('');
       }
     } else {
       setError(result.error || '上传失败，请检查网络连接');
-    }
-  };
-
-  const handleSaveMetadata = async (metadata: any) => {
-    if (!uploadResult || !selectedFile) return;
-
-    try {
-      setIsSaving(true);
-      setError('');
-
-      // 保留 AI 提取的目录，不再重置为 []
-      const confirmedMetadata = {
-        ...metadata,
-        tableOfContents: metadata.tableOfContents || uploadResult.metadata?.tableOfContents || []
-      };
-
-      console.log('保存图书，使用临时文件:', uploadResult.tempFilePath);
-
-      // 调用后端 API 保存图书
-      await confirmBookUpload(
-        {
-          ...confirmedMetadata,
-          fileHash: uploadResult.fileHash
-        },
-        uploadResult.tempFilePath!,
-        ownerId
-      );
-
-      // 元数据已确认，通知父组件刷新列表并跳转到浏览页面
-      onMetadataConfirmed();
-      setShowEditor(false);
-
-      // 重置表单
-      setSuccess(false);
-      setSelectedFile(null);
-      setUploadResult(null);
-      resetProgress();
-    } catch (err: any) {
-      console.error('保存图书失败:', err);
-      setError('保存失败: ' + (err.message || '未知错误'));
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -253,10 +197,10 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
         >
           <Upload className={`w-12 h-12 mb-3 ${isUploading || isParsing ? 'text-gray-400 animate-pulse' : 'text-blue-600'}`} />
           <p className="text-sm text-gray-700 font-medium">
-            {isParsing ? '正在解析元数据...' : (isUploading ? '正在上传中...' : '点击选择文件或拖拽到此处')}
+            {isParsing ? processingStage || '正在解析图书...' : (isUploading ? '正在上传中...' : '点击选择文件或拖拽到此处')}
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            {isParsing ? 'AI 正在分析目录与作者，请稍候' : '支持 PDF、EPUB、TXT 格式，最大 200MB'}
+            {isParsing ? '任务将在完成后自动出现在书架，可再编辑元数据' : '支持 PDF、EPUB、TXT 格式，最大 200MB'}
           </p>
           <input
             id="book-upload"
@@ -278,7 +222,7 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
             {isParsing && (
               <div className="flex items-center gap-2 text-sm text-blue-600 animate-pulse">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>文件上传完成，正在智析元数据...</span>
+                <span>{processingStage || '文件上传完成，正在解析图书...'}</span>
               </div>
             )}
           </div>
@@ -306,36 +250,6 @@ export const BookUploader: React.FC<BookUploaderProps> = ({ onUploadSuccess, onM
         </div>
       </div>
 
-      {/* 图书元数据确认态框 */}
-      {showEditor && uploadResult?.metadata && (
-        <BookMetadataModal
-          fileName={uploadResult.metadata.fileName || selectedFile?.name || ''}
-          initialMetadata={{
-            title: uploadResult.metadata.title || '',
-            author: uploadResult.metadata.author || '',
-            subject: uploadResult.metadata.subject || '',
-            grade: uploadResult.metadata.grade || '',
-            category: uploadResult.metadata.category || '',
-            publisher: uploadResult.metadata.publisher || '',
-            publishDate: uploadResult.metadata.publishDate || '',
-            notes: uploadResult.metadata.notes || ''
-          }}
-          confidence={uploadResult.confidence || { overall: 0, fields: {} }}
-          isSaving={isSaving}
-          onSave={(metadata) => {
-            handleSaveMetadata({
-              ...uploadResult.metadata,
-              ...metadata
-            });
-          }}
-          onCancel={() => {
-            setShowEditor(false);
-            setUploadResult(null);
-            setSelectedFile(null);
-            resetProgress();
-          }}
-        />
-      )}
     </div>
   );
 };

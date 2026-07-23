@@ -16,13 +16,17 @@ import ttsRouter from './routes/tts.js';
 import usersRouter from './routes/users.js';
 import wrongProblemsRouter from './routes/wrongProblems.js';
 import dashboardRouter from './routes/dashboard.js';
+import jobsRouter from './routes/jobs.js';
 import { cleanupTempChunks } from './utils/cleanup.js';
 import { initDatabase } from './services/databaseService.js';
+import { startJobScheduler } from './services/jobRuntime.js';
+import { attachLiveTutorGateway } from './services/liveTutorGateway.js';
 
 dotenv.config();
 
 // 初始化数据库
 initDatabase();
+startJobScheduler();
 
 // 拍题异步任务：启动恢复 + 每小时清理 24h 之前的记录
 initAnalyzeTasks();
@@ -82,6 +86,7 @@ app.use('/api', ttsRouter);
 app.use('/api', usersRouter);
 app.use('/api', wrongProblemsRouter);
 app.use('/api', dashboardRouter);
+app.use('/api', jobsRouter);
 
 // API 404 处理（仅 /api/* 未匹配时返回 JSON）
 app.use('/api', (req, res) => {
@@ -123,6 +128,8 @@ const server = app.listen(PORT, () => {
     cleanupTempChunks().catch(console.error);
   }, 60 * 60 * 1000);
 });
+
+attachLiveTutorGateway(server);
 
 // 设置服务器超时时间为 30 分钟 (解决特大文件上传解析耗时长的 408 错误)
 server.timeout = 1800000;

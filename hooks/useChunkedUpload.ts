@@ -12,7 +12,7 @@ export interface ChunkedUploadResult {
 export interface UseChunkedUploadReturn {
   uploadProgress: UploadProgress | null;
   isUploading: boolean;
-  uploadFile: (file: File, ownerId: string, endpoint: string) => Promise<ChunkedUploadResult>;
+  uploadFile: (file: File, ownerId: string, endpoint: string, fields?: Record<string, string>) => Promise<ChunkedUploadResult>;
   resetProgress: () => void;
 }
 
@@ -23,7 +23,8 @@ export const useChunkedUpload = (): UseChunkedUploadReturn => {
   const uploadFile = useCallback(async (
     file: File,
     ownerId: string,
-    endpoint: string
+    endpoint: string,
+    fields?: Record<string, string>,
   ): Promise<ChunkedUploadResult> => {
     setIsUploading(true);
     setUploadProgress({
@@ -97,6 +98,7 @@ export const useChunkedUpload = (): UseChunkedUploadReturn => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('ownerId', ownerId);
+      Object.entries(fields || {}).forEach(([key, value]) => formData.append(key, value));
 
       xhr.open('POST', endpoint, true);
       xhr.send(formData);
