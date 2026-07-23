@@ -8,6 +8,7 @@ import {
   encodeRealtimeJson,
   parseRealtimeJson,
   REALTIME_MESSAGE_TYPE,
+  toRealtimeBuffer,
 } from './doubaoRealtimeProtocol.js';
 
 const REALTIME_URL = 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue';
@@ -168,7 +169,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
     });
     upstream.on('message', raw => {
       try {
-        const frame = decodeRealtimeFrame(Buffer.from(raw));
+        const frame = decodeRealtimeFrame(toRealtimeBuffer(raw));
         if (frame.messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO && frame.event === TTS_RESPONSE) {
           sendBrowser(client, { type: 'audio', data: frame.payload.toString('base64') });
           return;
