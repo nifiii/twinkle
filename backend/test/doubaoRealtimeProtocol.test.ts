@@ -6,6 +6,7 @@ import {
   encodeRealtimeJson,
   parseRealtimeJson,
   REALTIME_MESSAGE_TYPE,
+  isRealtimeAck,
   toRealtimeBuffer,
 } from '../src/services/doubaoRealtimeProtocol.js';
 
@@ -44,4 +45,9 @@ test('normalizes every ws RawData representation before decoding', () => {
   assert.deepEqual(toRealtimeBuffer(bytes), bytes);
   assert.deepEqual(toRealtimeBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), bytes);
   assert.deepEqual(toRealtimeBuffer([bytes.subarray(0, 2), bytes.subarray(2)]), bytes);
+});
+
+test('identifies server acknowledgements before business-frame decoding', () => {
+  assert.equal(isRealtimeAck(Buffer.from([0x14, 0xa0, 0x00, 0x00])), true);
+  assert.equal(isRealtimeAck(Buffer.from([0x14, 0x90, 0x10, 0x00])), false);
 });
