@@ -169,8 +169,8 @@ export function attachLiveTutorGateway(server: HttpServer) {
       }));
     });
     upstream.on('message', raw => {
+      const data = toRealtimeBuffer(raw);
       try {
-        const data = toRealtimeBuffer(raw);
         if (isRealtimeAck(data)) return;
         const frame = decodeRealtimeFrame(data);
         if (frame.messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO && frame.event === TTS_RESPONSE) {
@@ -186,7 +186,9 @@ export function attachLiveTutorGateway(server: HttpServer) {
         if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR || frame.event === 153 || frame.event === 599) {
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
         }
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'unknown';
+        console.warn(`[LiveTutor] upstream protocol error length=${data.length} header=${data.subarray(0, 4).toString('hex')} reason=${reason}`);
         finish('protocol_error', '实时导师返回了无法处理的数据');
       }
     });
