@@ -250,6 +250,15 @@ export class JobStore {
     return this.db.prepare('SELECT * FROM jobs WHERE status = ? ORDER BY createdAt ASC, id ASC').all(status) as JobRecord[];
   }
 
+  listForOwner(ownerId: string): JobRecord[] {
+    return this.db.prepare('SELECT * FROM jobs WHERE ownerId = ? ORDER BY createdAt DESC, rowid DESC').all(ownerId) as JobRecord[];
+  }
+
+  getQueuePosition(id: string): number | undefined {
+    const job = this.get(id);
+    return job?.status === 'queued' ? queuePosition(this.db, id) : undefined;
+  }
+
   private getByRequestKey(ownerId: string, requestKey: string): JobRecord | null {
     return (this.db.prepare('SELECT * FROM jobs WHERE ownerId = ? AND requestKey = ?').get(ownerId, requestKey) as JobRecord | undefined) || null;
   }
