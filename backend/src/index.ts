@@ -20,6 +20,7 @@ import jobsRouter from './routes/jobs.js';
 import { cleanupTempChunks } from './utils/cleanup.js';
 import { initDatabase } from './services/databaseService.js';
 import { startJobScheduler } from './services/jobRuntime.js';
+import { attachLiveTutorGateway } from './services/liveTutorGateway.js';
 
 dotenv.config();
 
@@ -127,6 +128,8 @@ const server = app.listen(PORT, () => {
     cleanupTempChunks().catch(console.error);
   }, 60 * 60 * 1000);
 });
+
+attachLiveTutorGateway(server);
 
 // 设置服务器超时时间为 30 分钟 (解决特大文件上传解析耗时长的 408 错误)
 server.timeout = 1800000;

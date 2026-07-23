@@ -1,6 +1,6 @@
 
 /**
- * Manual base64 encoding/decoding utilities as per @google/genai guidelines.
+ * Browser-safe base64 helpers for PCM transport.
  */
 
 export function encode(bytes: Uint8Array): string {
@@ -23,7 +23,7 @@ export function decode(base64: string): Uint8Array {
 }
 
 /**
- * Decodes raw PCM audio data (S16_LE) from Gemini Live API.
+ * Decodes raw PCM audio data (S16_LE) from the realtime tutor gateway.
  */
 export async function decodeAudioData(
   data: Uint8Array,

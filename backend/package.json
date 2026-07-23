@@ -15,6 +15,7 @@
     "@google/generative-ai": "^0.24.1",
     "@types/bcrypt": "^6.0.0",
     "@types/uuid": "^10.0.0",
+    "axios": "^1.7.9",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.2",
     "canvas": "^3.2.1",
@@ -33,7 +34,7 @@
     "pdfjs-dist": "^5.5.207",
     "uuid": "^13.0.0",
     "winston": "^3.11.0",
-    "axios": "^1.7.9"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/axios": "^0.14.4",
@@ -43,6 +44,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.10.6",
     "@types/pdf-parse": "^1.1.4",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

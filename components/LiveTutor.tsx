@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Modality, LiveServerMessage, Blob } from '@google/genai';
 import { UserProfile } from '../types';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
 
@@ -14,115 +13,110 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
   const [transcription, setTranscription] = useState<{ type: 'user' | 'model'; text: string }[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
-  const sessionRef = useRef<any>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const vadEndedAtRef = useRef<number | null>(null);
+
+  const stopPlayback = () => {
+    for (const source of sourcesRef.current.values()) source.stop();
+    sourcesRef.current.clear();
+    nextStartTimeRef.current = 0;
+    setIsSpeaking(false);
+  };
+
+  const closeSession = () => {
+    socketRef.current?.close();
+    socketRef.current = null;
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    audioContextRef.current?.close();
+    outputAudioContextRef.current?.close();
+    processorRef.current = null;
+    sourceRef.current = null;
+    streamRef.current = null;
+    audioContextRef.current = null;
+    outputAudioContextRef.current = null;
+    stopPlayback();
+  };
 
   const startSession = async () => {
     try {
       setIsActive(true);
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
+      setErrorMessage(null);
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            console.log('Tutor Session Connected');
-            const source = audioContextRef.current!.createMediaStreamSource(stream);
-            const scriptProcessor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
-            
-            scriptProcessor.onaudioprocess = (e) => {
-              if (!sessionRef.current) return;
-              const inputData = e.inputBuffer.getChannelData(0);
-              // Convert to Int16
-              const l = inputData.length;
-              const int16 = new Int16Array(l);
-              for (let i = 0; i < l; i++) {
-                int16[i] = inputData[i] * 32768;
-              }
-              
-              const pcmBlob: Blob = {
-                data: encode(new Uint8Array(int16.buffer)),
-                mimeType: 'audio/pcm;rate=16000',
-              };
-              
-              sessionPromise.then(session => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              });
-            };
-            
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(audioContextRef.current!.destination);
-            setIsListening(true);
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            if (message.serverContent?.inputTranscription) {
-              const text = message.serverContent.inputTranscription.text ?? '';
-              setTranscription(prev => [...prev, { type: 'user', text }]);
-            }
-            if (message.serverContent?.outputTranscription) {
-              const text = message.serverContent.outputTranscription.text ?? '';
-              setTranscription(prev => [...prev, { type: 'model', text }]);
-            }
-
-            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (base64Audio) {
-              setIsSpeaking(true);
-              const ctx = outputAudioContextRef.current!;
-              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-              
-              const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
-              const source = ctx.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(ctx.destination);
-              
-              source.addEventListener('ended', () => {
-                sourcesRef.current.delete(source);
-                if (sourcesRef.current.size === 0) setIsSpeaking(false);
-              });
-              
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-              sourcesRef.current.add(source);
-            }
-
-            if (message.serverContent?.interrupted) {
-              for (const source of sourcesRef.current.values()) {
-                source.stop();
-              }
-              sourcesRef.current.clear();
-              nextStartTimeRef.current = 0;
-              setIsSpeaking(false);
-            }
-          },
-          onerror: (e) => console.error('Tutor Error:', e),
-          onclose: () => setIsActive(false),
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
-          },
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          systemInstruction: `你是一位全能 AI 家庭导师，正在为${currentUser.name}（${currentUser.grade}）提供辅导。
-          你的语气应该是：热情、专业、富有启发性。
-          如果学生问你题目，你应该通过引导思考的方式帮助他们，而不是直接给答案。
-          保持简短有力的语音反馈。`,
-        },
-      });
-
-      sessionRef.current = await sessionPromise;
+      streamRef.current = stream;
+      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const socket = new WebSocket(`${scheme}://${window.location.host}/api/live-tutor?ownerId=${encodeURIComponent(currentUser.id)}`);
+      socket.binaryType = 'arraybuffer';
+      socketRef.current = socket;
+      socket.onopen = () => {
+        const source = audioContextRef.current!.createMediaStreamSource(stream);
+        const processor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
+        source.connect(processor);
+        processor.connect(audioContextRef.current!.destination);
+        sourceRef.current = source;
+        processorRef.current = processor;
+        processor.onaudioprocess = event => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+          const input = event.inputBuffer.getChannelData(0);
+          const pcm = new Int16Array(input.length);
+          for (let index = 0; index < input.length; index++) pcm[index] = Math.max(-1, Math.min(1, input[index])) * 32767;
+          socket.send(pcm.buffer);
+        };
+        setIsListening(true);
+      };
+      socket.onmessage = async event => {
+        const message = JSON.parse(event.data as string) as { type: string; side?: 'user' | 'tutor'; text?: string; data?: string };
+        if (message.type === 'transcript' && message.text && message.side) {
+          setTranscription(previous => [...previous, { type: message.side === 'user' ? 'user' : 'model', text: message.text! }]);
+        }
+        if (message.type === 'vad_ended') vadEndedAtRef.current = performance.now();
+        if (message.type === 'interrupted') stopPlayback();
+        if (message.type === 'audio' && message.data && outputAudioContextRef.current) {
+          const context = outputAudioContextRef.current;
+          const audioBuffer = await decodeAudioData(decode(message.data), context, 24000, 1);
+          const source = context.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(context.destination);
+          source.addEventListener('ended', () => {
+            sourcesRef.current.delete(source);
+            if (sourcesRef.current.size === 0) setIsSpeaking(false);
+          });
+          nextStartTimeRef.current = Math.max(nextStartTimeRef.current, context.currentTime);
+          source.start(nextStartTimeRef.current);
+          if (vadEndedAtRef.current !== null) {
+            console.info('[LiveTutor] live_first_audio_ms', Math.round(performance.now() - vadEndedAtRef.current));
+            vadEndedAtRef.current = null;
+          }
+          nextStartTimeRef.current += audioBuffer.duration;
+          sourcesRef.current.add(source);
+          setIsSpeaking(true);
+        }
+        if (message.type === 'error') {
+          const text = message.text || '实时导师暂时不可用，请稍后重试';
+          setErrorMessage(text);
+          setTranscription(previous => [...previous, { type: 'model', text }]);
+        }
+      };
+      socket.onerror = () => setErrorMessage('实时导师连接失败，请检查网络后重试');
+      socket.onclose = () => {
+        setIsActive(false);
+        setIsListening(false);
+      };
     } catch (err) {
-      console.error('Failed to start tutor session:', err);
+      console.error('Failed to start tutor session');
+      setErrorMessage('无法使用麦克风，请检查浏览器权限后重试');
       setIsActive(false);
     }
   };
@@ -130,9 +124,7 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
   useEffect(() => {
     startSession();
     return () => {
-      if (sessionRef.current) sessionRef.current.close();
-      if (audioContextRef.current) audioContextRef.current.close();
-      if (outputAudioContextRef.current) outputAudioContextRef.current.close();
+      closeSession();
     };
   }, []);
 
@@ -152,7 +144,7 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
         <div className="space-y-2">
           <h2 className="text-2xl font-black text-white">AI 专家导师</h2>
           <p className="text-brand-400 text-xs font-bold uppercase tracking-widest">
-            {isSpeaking ? '正在讲解中...' : isListening ? '正在倾听...' : '连接中...'}
+            {errorMessage || (isSpeaking ? '正在讲解中...' : isListening ? '正在倾听...' : '连接中...')}
           </p>
         </div>
 
@@ -171,7 +163,7 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
 
         <div className="flex space-x-4">
           <button 
-            onClick={onClose}
+            onClick={() => { closeSession(); onClose(); }}
             className="px-10 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black transition-all"
           >
             结束辅导
