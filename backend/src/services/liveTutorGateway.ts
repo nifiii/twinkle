@@ -13,6 +13,8 @@ import {
 } from './doubaoRealtimeProtocol.js';
 
 const REALTIME_URL = 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue';
+// The Realtime API specifies this protocol constant; it is not the console Secret Key.
+const REALTIME_APP_KEY = 'PlgvMymc7f3tQnJ6';
 const START_CONNECTION = 1;
 const CONNECTION_STARTED = 50;
 const CONNECTION_FAILED = 51;
@@ -28,7 +30,6 @@ const TTS_RESPONSE = 352;
 interface RealtimeConfig {
   appId: string;
   accessToken: string;
-  appKey: string;
   resourceId: string;
   model: string;
   maxSessions: number;
@@ -54,13 +55,11 @@ export function getRealtimeConfig(): RealtimeConfig | null {
   if (process.env.LIVE_TUTOR_DOUBAO_ENABLED !== 'true') return null;
   const appId = process.env.DOUBAO_REALTIME_APP_ID || '';
   const accessToken = process.env.DOUBAO_REALTIME_ACCESS_TOKEN || '';
-  const appKey = process.env.DOUBAO_REALTIME_APP_KEY || '';
   const resourceId = process.env.DOUBAO_REALTIME_RESOURCE_ID || '';
-  if (!appId || !accessToken || !appKey || !resourceId) return null;
+  if (!appId || !accessToken || !resourceId) return null;
   return {
     appId,
     accessToken,
-    appKey,
     resourceId,
     model: process.env.DOUBAO_REALTIME_MODEL || '1.2.1.1',
     maxSessions: readPositiveInteger('DOUBAO_REALTIME_MAX_SESSIONS', 3),
@@ -78,9 +77,10 @@ function tutorRole(ownerName: string, grade: string | null): string {
   return `你是一位全能 AI 家庭导师，正在为${ownerName}（${grade || '当前年级'}）提供辅导。语气热情、专业、有启发性。遇到题目时通过引导思考帮助学生，不直接给答案。保持简短有力的语音反馈。`;
 }
 
-function eventText(payload: Record<string, unknown>): string {
+export function eventText(payload: Record<string, unknown>): string {
   const result = payload.result as Record<string, unknown> | undefined;
-  return String(payload.text || payload.content || result?.text || result?.content || '');
+  const results = payload.results as Array<Record<string, unknown>> | undefined;
+  return String(payload.text || payload.content || result?.text || result?.content || results?.[0]?.text || '');
 }
 
 function upstreamErrorDetail(payload: Record<string, unknown>): string {
@@ -145,7 +145,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
         'X-Api-App-ID': config.appId,
         'X-Api-Access-Key': config.accessToken,
         'X-Api-Resource-Id': config.resourceId,
-        'X-Api-App-Key': config.appKey,
+        'X-Api-App-Key': REALTIME_APP_KEY,
         'X-Api-Connect-Id': sessionId,
       },
     });
@@ -206,14 +206,12 @@ export function attachLiveTutorGateway(server: HttpServer) {
           sendBrowser(client, { type: 'session_started' });
         }
         if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR) {
-          const errorPayload = parseRealtimeJson(frame);
-          console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length} detail=${JSON.stringify(upstreamErrorDetail(errorPayload))}`);
+          console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length}`);
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
           return;
         }
         if (frame.event === CONNECTION_FAILED || frame.event === 153 || frame.event === 599) {
-          const errorPayload = parseRealtimeJson(frame);
-          console.warn(`[LiveTutor] upstream session ended event=${frame.event} payloadLength=${frame.payload.length} detail=${JSON.stringify(upstreamErrorDetail(errorPayload))}`);
+          console.warn(`[LiveTutor] upstream session ended event=${frame.event} payloadLength=${frame.payload.length}`);
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
         }
       } catch (error) {
