@@ -183,7 +183,12 @@ export function attachLiveTutorGateway(server: HttpServer) {
         if (frame.event === CHAT_RESPONSE) sendBrowser(client, { type: 'transcript', side: 'tutor', text: eventText(payload) });
         if (frame.event === ASR_ENDED) sendBrowser(client, { type: 'vad_ended' });
         if (frame.event === 150) sendBrowser(client, { type: 'session_started' });
-        if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR || frame.event === 153 || frame.event === 599) {
+        if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR) {
+          console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length}`);
+          finish('upstream_error', '实时导师暂时不可用，请稍后重试');
+          return;
+        }
+        if (frame.event === 153 || frame.event === 599) {
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
         }
       } catch (error) {
