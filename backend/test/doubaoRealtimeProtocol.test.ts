@@ -53,15 +53,19 @@ test('identifies server acknowledgements before business-frame decoding', () => 
   assert.equal(isRealtimeAck(Buffer.from([0x11, 0x90, 0x10, 0x00])), false);
 });
 
-test('decodes server session-start frames without a binary session id', () => {
+test('decodes server session-start frames with a binary session id', () => {
   const payload = Buffer.from('{}');
-  const frame = Buffer.alloc(12 + payload.length);
+  const sessionId = Buffer.from('12345678-1234-1234-1234-123456789012');
+  const frame = Buffer.alloc(16 + sessionId.length + payload.length);
   frame.set([0x11, 0x94, 0x10, 0x00]);
   frame.writeUInt32BE(150, 4);
-  frame.writeUInt32BE(payload.length, 8);
-  payload.copy(frame, 12);
+  frame.writeUInt32BE(sessionId.length, 8);
+  sessionId.copy(frame, 12);
+  frame.writeUInt32BE(payload.length, 12 + sessionId.length);
+  payload.copy(frame, 16 + sessionId.length);
   const decoded = decodeRealtimeFrame(frame);
   assert.equal(decoded.messageType, REALTIME_MESSAGE_TYPE.SERVER_JSON);
   assert.equal(decoded.event, 150);
+  assert.equal(decoded.sessionId, sessionId.toString('utf8'));
   assert.deepEqual(decoded.payload, payload);
 });

@@ -16,6 +16,7 @@ const JSON_SERIALIZATION = 1;
 export interface RealtimeFrame {
   messageType: number;
   event?: number;
+  sessionId?: string;
   payload: Buffer;
   serialization: number;
 }
@@ -103,12 +104,21 @@ export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
     event = data.readUInt32BE(offset);
     offset += 4;
   }
+  let sessionId: string | undefined;
+  if (messageType === REALTIME_MESSAGE_TYPE.SERVER_JSON || messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO) {
+    if (data.length < offset + 4) throw new Error('Realtime frame session id is incomplete');
+    const sessionIdSize = data.readUInt32BE(offset);
+    offset += 4;
+    if (data.length < offset + sessionIdSize + 4) throw new Error('Realtime frame session id is invalid');
+    sessionId = data.subarray(offset, offset + sessionIdSize).toString('utf8');
+    offset += sessionIdSize;
+  }
   if (data.length < offset + 4) throw new Error('Realtime frame payload is incomplete');
   const payloadSize = data.readUInt32BE(offset);
   offset += 4;
   if (data.length !== offset + payloadSize) throw new Error('Realtime frame payload is invalid');
 
-  return { messageType, event, payload: data.subarray(offset), serialization };
+  return { messageType, event, sessionId, payload: data.subarray(offset), serialization };
 }
 
 export function parseRealtimeJson(frame: RealtimeFrame): Record<string, unknown> {
