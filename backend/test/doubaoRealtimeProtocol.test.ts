@@ -78,3 +78,21 @@ test('decodes server session-start frames with a binary session id', () => {
   assert.equal(decoded.sessionId, sessionId.toString('utf8'));
   assert.deepEqual(decoded.payload, payload);
 });
+
+test('decodes a ConnectionStarted frame that includes the optional connect id', () => {
+  const payload = Buffer.from('{}');
+  const connectId = Buffer.from('12345678-1234-1234-1234-123456789012');
+  const frame = Buffer.alloc(16 + connectId.length + payload.length);
+  frame.set([0x11, 0x94, 0x10, 0x00]);
+  frame.writeUInt32BE(50, 4);
+  frame.writeUInt32BE(connectId.length, 8);
+  connectId.copy(frame, 12);
+  frame.writeUInt32BE(payload.length, 12 + connectId.length);
+  payload.copy(frame, 16 + connectId.length);
+
+  const decoded = decodeRealtimeFrame(frame);
+  assert.equal(frame.length, 54);
+  assert.equal(decoded.event, 50);
+  assert.equal(decoded.connectId, connectId.toString('utf8'));
+  assert.deepEqual(parseRealtimeJson(decoded), {});
+});

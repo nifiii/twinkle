@@ -17,6 +17,7 @@ const CONNECTION_EVENTS = new Set([1, 2, 50, 51, 52]);
 export interface RealtimeFrame {
   messageType: number;
   event?: number;
+  connectId?: string;
   sessionId?: string;
   payload: Buffer;
   serialization: number;
@@ -112,8 +113,22 @@ export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
     event = data.readUInt32BE(offset);
     offset += 4;
   }
+  let connectId: string | undefined;
   let sessionId: string | undefined;
-  if (event !== undefined && !CONNECTION_EVENTS.has(event)) {
+  if (event !== undefined && CONNECTION_EVENTS.has(event)) {
+    // Connect ID is optional for connection events. Treat it as present only when
+    // both following length fields exactly consume the complete wire frame.
+    const connectIdSize = data.length >= offset + 4 ? data.readUInt32BE(offset) : 0;
+    const connectIdOffset = offset + 4;
+    const payloadSizeOffset = connectIdOffset + connectIdSize;
+    if (data.length >= payloadSizeOffset + 4) {
+      const payloadSize = data.readUInt32BE(payloadSizeOffset);
+      if (data.length === payloadSizeOffset + 4 + payloadSize) {
+        connectId = data.subarray(connectIdOffset, payloadSizeOffset).toString('utf8');
+        offset = payloadSizeOffset;
+      }
+    }
+  } else if (event !== undefined) {
     if (data.length < offset + 4) throw new Error('Realtime frame session id is incomplete');
     const sessionIdSize = data.readUInt32BE(offset);
     offset += 4;
@@ -126,7 +141,7 @@ export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
   offset += 4;
   if (data.length !== offset + payloadSize) throw new Error('Realtime frame payload is invalid');
 
-  return { messageType, event, sessionId, payload: data.subarray(offset), serialization };
+  return { messageType, event, connectId, sessionId, payload: data.subarray(offset), serialization };
 }
 
 export function parseRealtimeJson(frame: RealtimeFrame): Record<string, unknown> {
