@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import ResourcesShell, { ResourcesSub } from './components/ResourcesShell';
 import { AIClassroom } from './components/AIClassroom';
+import LiveTutor from './components/LiveTutor';
 import ProfilePage from './components/ProfilePage';
 import { ScannedItem, UserProfile, EBook, KnowledgeStatus, ProcessingStatus } from './types';
 import { fetchBooks, fetchScannedItems, deleteScannedItem } from './services/apiService';
@@ -95,6 +96,7 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [switchToast, setSwitchToast] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
+  const [isLiveTutorOpen, setIsLiveTutorOpen] = useState(false);
 
   // 第二参数 subPath 用于直接深链到 Tab 内部
   // - tab='tutor': subPath = 'courseware/<id>' / 'wrong/<id>' / 'quiz/<id>' / 'history'
@@ -272,6 +274,8 @@ const App: React.FC = () => {
   const handleUserSwitch = (userId: string) => {
     const user = profiles.find(u => u.id === userId);
     if (user) {
+      // A realtime session belongs to one ownerId and must not outlive a user switch.
+      setIsLiveTutorOpen(false);
       setCurrentUser(user);
       saveLastUsedUser(userId);
       setSwitchToast(`✅ 已切换到${user.name}的视图`);
@@ -404,6 +408,21 @@ const App: React.FC = () => {
     >
       <ErrorToast />
       <SwitchToast />
+      {!editingProfile && !isLiveTutorOpen && (
+        <button
+          type="button"
+          aria-label="打开实时导师"
+          title="实时导师"
+          onClick={() => setIsLiveTutorOpen(true)}
+          className="fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-lg bg-cyan-500 px-4 text-sm font-bold text-slate-950 shadow-lg transition-colors hover:bg-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200"
+        >
+          <i className="fa-solid fa-microphone" aria-hidden="true"></i>
+          <span>实时导师</span>
+        </button>
+      )}
+      {isLiveTutorOpen && (
+        <LiveTutor currentUser={currentUser} onClose={() => setIsLiveTutorOpen(false)} />
+      )}
       <AnimatePresence mode="wait">
         {editingProfile ? (
           <motion.div
