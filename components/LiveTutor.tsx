@@ -202,8 +202,8 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
   const statusText = errorMessage || (isSessionReady ? (isSpeaking ? '导师正在回复' : isMicMuted ? '语音已暂停' : '正在聆听') : '正在连接');
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[100] flex items-end justify-end p-4 animate-fade-in">
-      <section className="pointer-events-auto flex h-[min(620px,calc(100dvh-2rem))] w-full max-w-md flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-2xl" aria-label="实时导师聊天">
+    <div className="pointer-events-none fixed inset-0 z-[100] flex items-end justify-end p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 animate-fade-in">
+      <section className="pointer-events-auto flex h-[min(72dvh,620px)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-2xl sm:h-[min(620px,calc(100dvh-2rem))]" aria-label="实时导师聊天">
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500 text-white" aria-hidden="true">
@@ -214,8 +214,8 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
               <p className="flex items-center gap-1 truncate text-xs text-zinc-500"><Wifi size={12} className={isSessionReady ? 'text-emerald-500' : 'text-zinc-400'} />{statusText}</p>
             </div>
           </div>
-          <button type="button" onClick={() => { closeSession(); onClose(); }} className="flex h-9 items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900" aria-label="关闭实时导师">
-            <X size={20} />
+          <button type="button" onClick={() => { closeSession(); onClose(); }} className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-zinc-300 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900" aria-label="关闭实时导师">
+            <X size={18} />
             <span>关闭</span>
           </button>
         </header>
@@ -245,7 +245,7 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
           </div>
         </main>
 
-        <footer className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <footer className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3">
           <div className="flex items-end gap-2">
             <button type="button" onClick={toggleMicrophone} disabled={!isSessionReady} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:text-zinc-300 ${isMicMuted ? 'bg-zinc-100 text-zinc-500' : 'bg-brand-50 text-brand-600 hover:bg-brand-100'}`} aria-label={isMicMuted ? '恢复语音输入' : '暂停语音输入'}>
               {isMicMuted ? <MicOff size={19} /> : <Mic size={19} />}

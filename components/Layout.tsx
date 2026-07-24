@@ -15,6 +15,7 @@ interface LayoutProps {
   onCreateUser: (payload: { name: string; avatar?: string; birthDate?: string; baseGrade?: number }) => Promise<UserProfile>;
   onDeleteUser: (id: string) => void;
   onOpenLiveTutor: () => void;
+  isLiveTutorOpen: boolean;
 }
 
 interface NavItem {
@@ -43,7 +44,8 @@ const Layout: React.FC<LayoutProps> = ({
   onEditProfile,
   onCreateUser,
   onDeleteUser,
-  onOpenLiveTutor
+  onOpenLiveTutor,
+  isLiveTutorOpen
 }) => {
   return (
     <div className="h-screen w-screen bg-cyber-gradient flex flex-col overflow-hidden relative">
@@ -59,7 +61,7 @@ const Layout: React.FC<LayoutProps> = ({
             aria-label="打开 AI 导师"
             title="AI 导师"
           >
-            <div className="w-9 h-9 bg-gradient-to-br from-neon-blue via-sky-500 to-neon-purple rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-glow-sm group-hover:shadow-glow transition-shadow duration-300">
+            <div className={`w-9 h-9 bg-gradient-to-br from-neon-blue via-sky-500 to-neon-purple rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-glow-sm group-hover:shadow-glow transition-shadow duration-300 ${isLiveTutorOpen ? '' : 'animate-pulse motion-reduce:animate-none'}`}>
               <Sparkles size={20} className="text-white" />
             </div>
             <span className="text-lg font-semibold bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent hidden sm:block">闪闪</span>

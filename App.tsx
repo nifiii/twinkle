@@ -396,7 +396,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout
+    <>
+      <Layout
       activeTab={activeTab}
       onTabChange={handleTabChange}
       currentUser={currentUser}
@@ -406,13 +407,11 @@ const App: React.FC = () => {
       onCreateUser={handleCreateUser}
       onDeleteUser={handleDeleteUser}
       onOpenLiveTutor={() => setIsLiveTutorOpen(true)}
-    >
-      <ErrorToast />
-      <SwitchToast />
-      {isLiveTutorOpen && (
-        <LiveTutor currentUser={currentUser} onClose={() => setIsLiveTutorOpen(false)} />
-      )}
-      <AnimatePresence mode="wait">
+      isLiveTutorOpen={isLiveTutorOpen}
+      >
+        <ErrorToast />
+        <SwitchToast />
+        <AnimatePresence mode="wait">
         {editingProfile ? (
           <motion.div
             key="profile-edit"
@@ -440,8 +439,12 @@ const App: React.FC = () => {
             {renderContent()}
           </motion.div>
         )}
-      </AnimatePresence>
-    </Layout>
+        </AnimatePresence>
+      </Layout>
+      {isLiveTutorOpen && (
+        <LiveTutor currentUser={currentUser} onClose={() => setIsLiveTutorOpen(false)} />
+      )}
+    </>
   );
 };
 
