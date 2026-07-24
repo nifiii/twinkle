@@ -24,8 +24,10 @@ const CLIENT_INTERRUPT = 515;
 const ASR_INFO = 450;
 const ASR_RESPONSE = 451;
 const ASR_ENDED = 459;
+const CHAT_TEXT_QUERY = 501;
 const CHAT_RESPONSE = 550;
 const TTS_RESPONSE = 352;
+const MAX_TEXT_QUERY_LENGTH = 2000;
 
 interface RealtimeConfig {
   appId: string;
@@ -42,6 +44,7 @@ interface BrowserEvent {
   type: 'session_started' | 'audio' | 'transcript' | 'interrupted' | 'vad_ended' | 'error' | 'closed';
   side?: 'user' | 'tutor';
   text?: string;
+  isInterim?: boolean;
   data?: string;
   code?: string;
 }
@@ -81,6 +84,25 @@ export function eventText(payload: Record<string, unknown>): string {
   const result = payload.result as Record<string, unknown> | undefined;
   const results = payload.results as Array<Record<string, unknown>> | undefined;
   return String(payload.text || payload.content || result?.text || result?.content || results?.[0]?.text || '');
+}
+
+export function asrTranscript(payload: Record<string, unknown>): { text: string; isInterim: boolean } {
+  const results = payload.results as Array<Record<string, unknown>> | undefined;
+  return {
+    text: eventText(payload),
+    isInterim: results?.[0]?.is_interim === true,
+  };
+}
+
+export function browserTextQuery(raw: Buffer | ArrayBuffer | Buffer[]): string | null {
+  try {
+    const message = JSON.parse(toRealtimeBuffer(raw).toString('utf8')) as { type?: unknown; text?: unknown };
+    if (message.type !== 'text' || typeof message.text !== 'string') return null;
+    const text = message.text.trim();
+    return text.length > 0 && text.length <= MAX_TEXT_QUERY_LENGTH ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 function upstreamErrorDetail(payload: Record<string, unknown>): string {
@@ -198,7 +220,10 @@ export function attachLiveTutorGateway(server: HttpServer) {
         }
         const payload = parseRealtimeJson(frame);
         if (frame.event === ASR_INFO) sendBrowser(client, { type: 'interrupted' });
-        if (frame.event === ASR_RESPONSE) sendBrowser(client, { type: 'transcript', side: 'user', text: eventText(payload) });
+        if (frame.event === ASR_RESPONSE) {
+          const transcript = asrTranscript(payload);
+          if (transcript.text) sendBrowser(client, { type: 'transcript', side: 'user', ...transcript });
+        }
         if (frame.event === CHAT_RESPONSE) sendBrowser(client, { type: 'transcript', side: 'tutor', text: eventText(payload) });
         if (frame.event === ASR_ENDED) sendBrowser(client, { type: 'vad_ended' });
         if (frame.event === 150) {
@@ -223,7 +248,12 @@ export function attachLiveTutorGateway(server: HttpServer) {
     upstream.on('error', () => finish('upstream_connect_failed', '无法连接实时导师，请稍后重试'));
     upstream.on('close', () => finish());
     client.on('message', (audio, isBinary) => {
-      if (!isBinary || closed || upstream.readyState !== WebSocket.OPEN) return;
+      if (closed || upstream.readyState !== WebSocket.OPEN || !sessionStarted) return;
+      if (!isBinary) {
+        const text = browserTextQuery(audio as Buffer | ArrayBuffer | Buffer[]);
+        if (text) upstream.send(encodeRealtimeJson(CHAT_TEXT_QUERY, { content: text }, sessionId));
+        return;
+      }
       const now = Date.now();
       if (now - frameWindowStartedAt >= 1000) {
         frameWindowStartedAt = now;

@@ -1,29 +1,50 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Mic, MicOff, Send, Volume2, Wifi, X } from 'lucide-react';
 import { UserProfile } from '../types';
-import { encode, decode, decodeAudioData } from '../services/audioUtils';
+import { decode, decodeAudioData } from '../services/audioUtils';
 
 interface LiveTutorProps {
   currentUser: UserProfile;
   onClose: () => void;
 }
 
+interface ChatMessage {
+  id: string;
+  side: 'user' | 'tutor';
+  text: string;
+}
+
+interface TutorEvent {
+  type: string;
+  side?: 'user' | 'tutor';
+  text?: string;
+  data?: string;
+  isInterim?: boolean;
+}
+
+const createMessageId = (side: ChatMessage['side']) => `${side}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
-  const [isActive, setIsActive] = useState(false);
-  const [transcription, setTranscription] = useState<{ type: 'user' | 'model'; text: string }[]>([]);
-  const [isListening, setIsListening] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState('');
+  const [interimUserText, setInterimUserText] = useState('');
+  const [isSessionReady, setIsSessionReady] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
+  const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const vadEndedAtRef = useRef<number | null>(null);
+  const isMicMutedRef = useRef(false);
+  const activeTutorMessageIdRef = useRef<string | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
 
   const stopPlayback = () => {
     for (const source of sourcesRef.current.values()) source.stop();
@@ -48,9 +69,26 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
     stopPlayback();
   };
 
+  const addMessage = (side: ChatMessage['side'], text: string) => {
+    setMessages(previous => [...previous, { id: createMessageId(side), side, text }]);
+  };
+
+  const appendTutorText = (text: string) => {
+    let messageId = activeTutorMessageIdRef.current;
+    if (!messageId) {
+      messageId = createMessageId('tutor');
+      activeTutorMessageIdRef.current = messageId;
+      const createdId = messageId;
+      setMessages(previous => [...previous, { id: createdId, side: 'tutor', text }]);
+      return;
+    }
+    setMessages(previous => previous.map(message => message.id === messageId
+      ? { ...message, text: message.text + text }
+      : message));
+  };
+
   const startSession = async () => {
     try {
-      setIsActive(true);
       setErrorMessage(null);
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -68,21 +106,31 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
         sourceRef.current = source;
         processorRef.current = processor;
         processor.onaudioprocess = event => {
-          if (socket.readyState !== WebSocket.OPEN) return;
+          if (isMicMutedRef.current || socket.readyState !== WebSocket.OPEN) return;
           const input = event.inputBuffer.getChannelData(0);
           const pcm = new Int16Array(input.length);
           for (let index = 0; index < input.length; index++) pcm[index] = Math.max(-1, Math.min(1, input[index])) * 32767;
           socket.send(pcm.buffer);
         };
-        setIsListening(true);
       };
       socket.onmessage = async event => {
-        const message = JSON.parse(event.data as string) as { type: string; side?: 'user' | 'tutor'; text?: string; data?: string };
-        if (message.type === 'transcript' && message.text && message.side) {
-          setTranscription(previous => [...previous, { type: message.side === 'user' ? 'user' : 'model', text: message.text! }]);
+        const message = JSON.parse(event.data as string) as TutorEvent;
+        if (message.type === 'session_started') setIsSessionReady(true);
+        if (message.type === 'transcript' && message.text && message.side === 'user') {
+          if (message.isInterim) {
+            setInterimUserText(message.text);
+          } else {
+            setInterimUserText('');
+            activeTutorMessageIdRef.current = null;
+            addMessage('user', message.text);
+          }
         }
+        if (message.type === 'transcript' && message.text && message.side === 'tutor') appendTutorText(message.text);
         if (message.type === 'vad_ended') vadEndedAtRef.current = performance.now();
-        if (message.type === 'interrupted') stopPlayback();
+        if (message.type === 'interrupted') {
+          activeTutorMessageIdRef.current = null;
+          stopPlayback();
+        }
         if (message.type === 'audio' && message.data && outputAudioContextRef.current) {
           const context = outputAudioContextRef.current;
           const audioBuffer = await decodeAudioData(decode(message.data), context, 24000, 1);
@@ -106,70 +154,102 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
         if (message.type === 'error') {
           const text = message.text || '实时导师暂时不可用，请稍后重试';
           setErrorMessage(text);
-          setTranscription(previous => [...previous, { type: 'model', text }]);
+          addMessage('tutor', text);
         }
       };
       socket.onerror = () => setErrorMessage('实时导师连接失败，请检查网络后重试');
       socket.onclose = () => {
-        setIsActive(false);
-        setIsListening(false);
+        setIsSessionReady(false);
+        activeTutorMessageIdRef.current = null;
       };
-    } catch (err) {
-      console.error('Failed to start tutor session');
+    } catch {
       setErrorMessage('无法使用麦克风，请检查浏览器权限后重试');
-      setIsActive(false);
+      setIsSessionReady(false);
     }
+  };
+
+  const sendText = () => {
+    const text = draft.trim();
+    const socket = socketRef.current;
+    if (!text || !isSessionReady || !socket || socket.readyState !== WebSocket.OPEN) return;
+    activeTutorMessageIdRef.current = null;
+    addMessage('user', text);
+    socket.send(JSON.stringify({ type: 'text', text }));
+    setDraft('');
+  };
+
+  const toggleMicrophone = () => {
+    const nextMuted = !isMicMutedRef.current;
+    isMicMutedRef.current = nextMuted;
+    setIsMicMuted(nextMuted);
   };
 
   useEffect(() => {
     startSession();
-    return () => {
-      closeSession();
-    };
+    return () => closeSession();
   }, []);
 
+  useEffect(() => {
+    messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, interimUserText]);
+
+  const statusText = errorMessage || (isSessionReady ? (isSpeaking ? '导师正在回复' : isMicMuted ? '语音已暂停' : '正在聆听') : '正在连接');
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-xl animate-fade-in">
-      <div className="w-full max-w-lg p-8 flex flex-col items-center text-center space-y-8">
-        <div className="relative">
-          {/* Animated Pulse Orb */}
-          <div className={`w-32 h-32 rounded-full bg-gradient-to-br from-brand-500 to-indigo-600 flex items-center justify-center shadow-[0_0_50px_rgba(14,165,233,0.4)] transition-transform duration-500 ${isSpeaking || isListening ? 'scale-110' : 'scale-100'}`}>
-            <i className={`fa-solid ${isSpeaking ? 'fa-waveform-lines' : 'fa-microphone'} text-5xl text-white ${isSpeaking ? 'animate-pulse' : ''}`}></i>
-          </div>
-          {(isSpeaking || isListening) && (
-             <div className="absolute inset-[-10px] rounded-full border-2 border-brand-400/30 animate-ping"></div>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <h2 className="text-2xl font-black text-white">AI 专家导师</h2>
-          <p className="text-brand-400 text-xs font-bold uppercase tracking-widest">
-            {errorMessage || (isSpeaking ? '正在讲解中...' : isListening ? '正在倾听...' : '连接中...')}
-          </p>
-        </div>
-
-        <div className="w-full h-48 bg-white/5 rounded-3xl border border-white/10 p-4 overflow-y-auto custom-scrollbar flex flex-col space-y-3">
-          {transcription.length === 0 && (
-            <p className="text-slate-500 text-sm mt-10">“你可以试着问我：这道几何题的辅助线怎么画？”</p>
-          )}
-          {transcription.map((t, i) => (
-            <div key={i} className={`flex ${t.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-xs font-medium ${t.type === 'user' ? 'bg-brand-500 text-white' : 'bg-slate-800 text-slate-200 border border-slate-700'}`}>
-                {t.text}
-              </div>
+    <div className="fixed inset-0 z-[100] bg-zinc-100 animate-fade-in">
+      <section className="mx-auto flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl" aria-label="实时导师聊天">
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500 text-white" aria-hidden="true">
+              <Volume2 size={18} />
             </div>
-          ))}
-        </div>
-
-        <div className="flex space-x-4">
-          <button 
-            onClick={() => { closeSession(); onClose(); }}
-            className="px-10 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black transition-all"
-          >
-            结束辅导
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-bold text-zinc-900">家庭导师</h2>
+              <p className="flex items-center gap-1 truncate text-xs text-zinc-500"><Wifi size={12} className={isSessionReady ? 'text-emerald-500' : 'text-zinc-400'} />{statusText}</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => { closeSession(); onClose(); }} className="flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900" aria-label="关闭实时导师">
+            <X size={20} />
           </button>
-        </div>
-      </div>
+        </header>
+
+        <main ref={messageListRef} className="flex-1 overflow-y-auto px-4 py-5" aria-live="polite">
+          {messages.length === 0 && !interimUserText && (
+            <div className="mx-auto mt-16 max-w-sm text-center">
+              <p className="text-sm font-medium text-zinc-700">现在开始辅导</p>
+              <p className="mt-2 text-sm leading-6 text-zinc-500">直接说话，或输入想问的问题。</p>
+            </div>
+          )}
+          <div className="space-y-4">
+            {messages.map(message => (
+              <div key={message.id} className={`flex ${message.side === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[82%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-6 ${message.side === 'user' ? 'bg-brand-500 text-white' : 'bg-zinc-100 text-zinc-800'}`}>
+                  {message.text}
+                </div>
+              </div>
+            ))}
+            {interimUserText && (
+              <div className="flex justify-end">
+                <div className="max-w-[82%] whitespace-pre-wrap break-words rounded-lg bg-brand-50 px-3 py-2 text-sm leading-6 text-brand-700 ring-1 ring-brand-200">
+                  {interimUserText}
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+
+        <footer className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={toggleMicrophone} disabled={!isSessionReady} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:text-zinc-300 ${isMicMuted ? 'bg-zinc-100 text-zinc-500' : 'bg-brand-50 text-brand-600 hover:bg-brand-100'}`} aria-label={isMicMuted ? '恢复语音输入' : '暂停语音输入'}>
+              {isMicMuted ? <MicOff size={19} /> : <Mic size={19} />}
+            </button>
+            <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendText(); } }} disabled={!isSessionReady} rows={1} maxLength={2000} placeholder={isSessionReady ? '输入消息' : '正在连接导师...'} className="max-h-28 min-h-10 flex-1 resize-none rounded-md border border-zinc-300 px-3 py-2 text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-brand-500 disabled:bg-zinc-50" />
+            <button type="button" onClick={sendText} disabled={!draft.trim() || !isSessionReady} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-zinc-200" aria-label="发送消息">
+              <Send size={18} />
+            </button>
+          </div>
+        </footer>
+      </section>
     </div>
   );
 };
