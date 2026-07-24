@@ -52,3 +52,6 @@ tmp/
 # User uploaded data
 data/
 uploads/
+
+# Authorized benchmark records contain timings only and are local evidence.
+artifacts/benchmark/
