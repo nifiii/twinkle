@@ -137,7 +137,7 @@ function extractTableOfContents(text: string): ChapterNode[] {
     }
   }
 
-  // 如果没有提取到章节，返回空数组（交由 Gemini AI 后续处理）
+  // 如果没有提取到章节，返回空数组，由后续元数据流程补充。
   return chapters;
 }
 

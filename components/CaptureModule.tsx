@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { analyzeImage } from '../services/geminiService';
+import { analyzeImage } from '../services/aiService';
 import { saveScannedItemToServer } from '../services/apiService';
 import { ProcessingStatus, ScannedItem, UserProfile, DocType, ProblemStatus } from '../types';
 import { Button, LoadingSpinner, Card, Badge, Input } from './ui';

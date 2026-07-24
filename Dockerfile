@@ -21,11 +21,12 @@ COPY services ./services
 COPY hooks ./hooks
 COPY utils ./utils
 COPY src ./src
+COPY scripts ./scripts
 COPY types.ts App.tsx index.tsx index.html ./
 COPY vite.config.ts tsconfig.json tsconfig.node.json ./
 COPY tailwind.config.js postcss.config.js ./
 
-RUN echo "API_KEY=placeholder" > .env.local && npm run build
+RUN echo "API_KEY=placeholder" > .env.local && npm run build && npm run verify:legacy-provider
 
 # ================================
 # Stage 2: 后端编译
@@ -43,9 +44,11 @@ COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
 
 COPY backend/src ./src
+COPY backend/scripts ./scripts
+COPY scripts/verify-no-legacy-provider.mjs ./verify-no-legacy-provider.mjs
 COPY backend/tsconfig.json ./
 
-RUN npm run build
+RUN npm run build && node verify-no-legacy-provider.mjs
 
 # 验证目标仅在 CI/本地显式 --target backend-test 时执行，避免测试依赖进入生产镜像。
 FROM backend-builder AS backend-test

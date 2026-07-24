@@ -6,13 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "node scripts/clean-dist.mjs && tsc",
     "test": "tsx --test test/*.test.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@google/genai": "^1.37.0",
-    "@google/generative-ai": "^0.24.1",
     "@types/bcrypt": "^6.0.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.7.9",

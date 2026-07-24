@@ -203,7 +203,7 @@ export async function fetchBooks(filters: {
       indexStatus: item.status === 'processing' ? IndexStatus.INDEXING : 
                   item.status === 'completed' ? IndexStatus.INDEXED : 
                   item.status === 'failed' ? IndexStatus.FAILED : IndexStatus.PENDING,
-      anythingLlmDocId: item.anythingLlmDocId,
+      extractionMethod: item.extractionMethod,
       coverUrl: item.metadata?.coverImage || undefined,
     }));
   } catch (error) {
@@ -245,7 +245,7 @@ export async function fetchBookById(id: string): Promise<EBook | null> {
       indexStatus: item.status === 'processing' ? IndexStatus.INDEXING : 
                   item.status === 'completed' ? IndexStatus.INDEXED : 
                   item.status === 'failed' ? IndexStatus.FAILED : IndexStatus.PENDING,
-      anythingLlmDocId: item.anythingLlmDocId,
+      extractionMethod: item.extractionMethod,
       coverUrl: item.metadata?.coverImage || undefined,
     };
   } catch (error) {

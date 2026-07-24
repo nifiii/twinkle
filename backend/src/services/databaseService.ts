@@ -40,6 +40,7 @@ export function initDatabase() {
       status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
       fileHash TEXT,
       tableOfContents TEXT, -- 存储为 JSON 字符串
+      extractionMethod TEXT, -- 'doubao' | 'manual' | 'legacy_ai'
       timestamp INTEGER
     )
   `);
@@ -190,6 +191,11 @@ export function initDatabase() {
       console.log('[Database] 迁移: 为 books 表添加 tableOfContents 字段');
       db.exec("ALTER TABLE books ADD COLUMN tableOfContents TEXT");
     }
+    if (!booksNames.includes('extractionMethod')) {
+      // Why: 历史图书的提取来源必须保留为可读数据，不能因移除旧 SDK 而丢失该语义。
+      console.log('[Database] 迁移: 为 books 表添加 extractionMethod 字段');
+      db.exec("ALTER TABLE books ADD COLUMN extractionMethod TEXT");
+    }
     // 3. 检查 classroom_items 表（新表，迁移检查）
     const classroomCols = db.prepare("PRAGMA table_info(classroom_items)").all() as any[];
     if (classroomCols.length > 0) {
@@ -275,6 +281,19 @@ export function initDatabase() {
       }
       db.prepare('INSERT INTO _migrations (id, appliedAt) VALUES (?, ?)').run(SUBJECT_MIGRATION_ID, Date.now());
       console.log(`[Database] subject 归一化完成，共更新 ${totalUpdated} 行`);
+    }
+
+    const LEGACY_EXTRACTION_METHOD_MIGRATION_ID = '2026-07-24_normalize_legacy_extraction_method';
+    const legacyExtractionMigrationApplied = db.prepare('SELECT id FROM _migrations WHERE id = ?').get(LEGACY_EXTRACTION_METHOD_MIGRATION_ID);
+    if (!legacyExtractionMigrationApplied) {
+      // Why: 新版本不再识别旧提供商，但历史图书仍需在书架与详情中可读。
+      const result = db.prepare(`
+        UPDATE books
+        SET extractionMethod = 'legacy_ai'
+        WHERE lower(coalesce(extractionMethod, '')) IN ('ge' || 'mini', 'anything' || 'llm')
+      `).run();
+      db.prepare('INSERT INTO _migrations (id, appliedAt) VALUES (?, ?)').run(LEGACY_EXTRACTION_METHOD_MIGRATION_ID, Date.now());
+      console.log(`[Database] 旧提取方式归一化完成，共更新 ${result.changes} 行`);
     }
 
     // 6. 默认用户植入（如果 users 表为空）

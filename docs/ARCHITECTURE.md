@@ -89,7 +89,7 @@ SQLite: /opt/twinkle/data/hlos.db
   └─ obsidian/Wrong_Problems/  错题 Markdown 文件
 ```
 
-> ⚠️ 项目**不使用** AnythingLLM、向量数据库（RAG），也不依赖 Gemini。所有 AI 能力均通过火山引擎豆包 API 提供。
+> ⚠️ 所有 AI 能力均通过火山引擎豆包 API 提供。
 
 ---
 

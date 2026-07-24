@@ -465,6 +465,7 @@ interface MetadataEntry {
   filePath?: string; // 用于教材文件
   fileHash?: string; // 文件哈希值
   tableOfContents?: any[]; // 章节目录
+  extractionMethod?: 'doubao' | 'manual' | 'legacy_ai';
 }
 
 /**
@@ -519,11 +520,11 @@ export async function updateMetadataIndex(entry: MetadataEntry): Promise<void> {
         INSERT INTO books (
           id, title, author, subject, category, grade, publisher, publishDate, 
           tags, ownerId, userName, filePath, mdPath, coverPath, status, 
-          fileHash, tableOfContents, timestamp
+          fileHash, tableOfContents, extractionMethod, timestamp
         ) VALUES (
           @id, @title, @author, @subject, @category, @grade, @publisher, @publishDate, 
           @tags, @ownerId, @userName, @filePath, @mdPath, @coverPath, @status, 
-          @fileHash, @tableOfContents, @timestamp
+          @fileHash, @tableOfContents, @extractionMethod, @timestamp
         )
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
@@ -542,6 +543,7 @@ export async function updateMetadataIndex(entry: MetadataEntry): Promise<void> {
           status=excluded.status,
           fileHash=excluded.fileHash,
           tableOfContents=excluded.tableOfContents,
+          extractionMethod=excluded.extractionMethod,
           timestamp=excluded.timestamp
       `);
 
@@ -558,6 +560,7 @@ export async function updateMetadataIndex(entry: MetadataEntry): Promise<void> {
         status: (entry as any).status || 'completed',
         fileHash: entry.fileHash || null,
         tableOfContents: JSON.stringify(entry.tableOfContents || []),
+        extractionMethod: entry.extractionMethod || 'manual',
         timestamp: entry.timestamp
       };
       stmt.run(params);

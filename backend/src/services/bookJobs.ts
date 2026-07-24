@@ -81,7 +81,7 @@ async function createProcessingEntry(payload: BookPayload, userName: string): Pr
   await updateMetadataIndex({
     id: payload.bookId, ...payload.metadata, type: 'textbook', ownerId: payload.ownerId, userName,
     subject: normalizeSubject(payload.metadata.subject), timestamp: Date.now(), filePath: payload.archivedPath,
-    fileHash: payload.fileHash, tableOfContents: payload.metadata.tableOfContents || [], status: 'processing',
+    fileHash: payload.fileHash, tableOfContents: payload.metadata.tableOfContents || [], extractionMethod: 'doubao', status: 'processing',
   } as any);
   payload.entryCreated = true;
 }
@@ -173,7 +173,7 @@ async function runBookJob(job: JobRecord): Promise<string> {
     await updateMetadataIndex({
       id: payload.bookId, ...metadata, type: 'textbook', ownerId: payload.ownerId, userName,
       subject: normalizeSubject(metadata.subject), timestamp: Date.now(), filePath: payload.archivedPath,
-      mdPath, imagePath: coverImage || undefined, fileHash: payload.fileHash, tableOfContents, status: 'completed',
+      mdPath, imagePath: coverImage || undefined, fileHash: payload.fileHash, tableOfContents, extractionMethod: 'doubao', status: 'completed',
     } as any);
 
     const resultPath = path.join(BOOK_JOB_DIR, `${job.id}.result.json`);
@@ -186,7 +186,7 @@ async function runBookJob(job: JobRecord): Promise<string> {
       await updateMetadataIndex({
         id: entry.bookId, ...entry.metadata, type: 'textbook', ownerId: entry.ownerId, userName,
         subject: normalizeSubject(entry.metadata.subject), timestamp: Date.now(), filePath: entry.archivedPath,
-        fileHash: entry.fileHash, tableOfContents: entry.metadata.tableOfContents || [], status: 'failed',
+        fileHash: entry.fileHash, tableOfContents: entry.metadata.tableOfContents || [], extractionMethod: 'doubao', status: 'failed',
       } as any).catch(() => undefined);
     }
     throw new JobExecutionError('BOOK_FAILED', error?.message || '图书解析失败');

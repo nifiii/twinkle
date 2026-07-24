@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:legacy-provider": "node scripts/verify-no-legacy-provider.mjs"
   },
   "dependencies": {
-    "@google/genai": "^1.37.0",
     "@tailwindcss/typography": "^0.5.19",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",

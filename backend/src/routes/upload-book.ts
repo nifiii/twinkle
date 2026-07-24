@@ -4,8 +4,6 @@ import path from 'path';
 import fs from 'fs/promises';
 import { extractPDFMetadata, parsePDF } from '../services/pdfParser.js';
 import { parseEPUB } from '../services/epubParser.js';
-import { analyzeBookMetadata } from '../services/bookMetadataAnalyzer.js';
-import { extractMetadataFromFileName } from '../services/geminiMetadataExtractor.js';
 import { analyzeMetadata, convertToMarkdown } from '../services/llmService.js';
 import { extractPagesAsImages } from '../services/imageService.js';
 import { extractMetadataFromPDFWithDoubao } from '../services/doubaoService.js';
@@ -350,7 +348,7 @@ router.post('/upload-book/parse', async (req: Request, res: Response) => {
             overall: basicMetadata.aiConfidence || 0,
             fields: basicMetadata.fieldConfidence || {}
           },
-          extractionMethod: 'gemini'
+          extractionMethod: 'doubao'
         },
       });
     } catch (parseError) {

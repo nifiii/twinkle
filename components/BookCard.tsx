@@ -72,7 +72,7 @@ export const BookCard: React.FC<BookCardProps> = ({ book, onSelect, onEdit, onDe
         )}
 
         {/* AI 提取标识 */}
-        {book.aiConfidence !== undefined && book.extractionMethod === 'gemini' && (
+        {book.aiConfidence !== undefined && book.extractionMethod !== 'manual' && (
           <div className="absolute top-2 left-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-2 py-1 rounded-full text-xs flex items-center gap-1 shadow-sm">
             <Sparkle className="w-3 h-3" />
             AI 提取

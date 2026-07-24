@@ -293,9 +293,6 @@ sudo systemctl enable firewalld
 sudo firewall-cmd --permanent --add-service=http
 sudo firewall-cmd --permanent --add-service=https
 
-# 如果需要暴露 AnythingLLM 管理界面（不推荐生产环境）
-# sudo firewall-cmd --permanent --add-port=3001/tcp
-
 # 重载配置
 sudo firewall-cmd --reload
 
@@ -413,7 +410,6 @@ echo "0 2 * * * cp /etc/nginx/auth/.htpasswd /opt/twinkle/backups/.htpasswd.$(da
 ### 5.1 备份策略
 
 **建议备份频率**:
-- AnythingLLM 向量数据: 每周备份
 - 用户上传的图书文件: 实时备份（或每日备份）
 - 配置文件: 版本控制（Git）
 
@@ -433,9 +429,6 @@ tar -czf "$BACKUP_DIR/obsidian.tar.gz" /opt/twinkle/data/obsidian/
 
 # 备份原始文件
 tar -czf "$BACKUP_DIR/originals.tar.gz" /opt/twinkle/data/originals/
-
-# 备份 AnythingLLM
-tar -czf "$BACKUP_DIR/anythingllm.tar.gz" /opt/twinkle/anythingllm-storage/
 
 # 备份元数据
 cp /opt/twinkle/data/metadata.json "$BACKUP_DIR/"
@@ -457,24 +450,6 @@ crontab -e
 # 保留最近30天
 0 4 * * * find /opt/twinkle/backups -type d -mtime +30 -exec rm -rf {} \;
 ```
-
-### 5.3 恢复备份
-
-```bash
-# 停止服务
-docker-compose stop anythingllm
-
-# 删除旧数据
-rm -rf /opt/twinkle/anythingllm-storage/*
-
-# 解压备份
-tar -xzf /opt/twinkle/backups/20260120/anythingllm.tar.gz -C /
-
-# 重启服务
-docker-compose start anythingllm
-```
-
----
 
 ## 6. 故障排查
 
