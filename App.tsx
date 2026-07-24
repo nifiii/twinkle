@@ -407,7 +407,6 @@ const App: React.FC = () => {
       onCreateUser={handleCreateUser}
       onDeleteUser={handleDeleteUser}
       onOpenLiveTutor={() => setIsLiveTutorOpen(true)}
-      isLiveTutorOpen={isLiveTutorOpen}
       >
         <ErrorToast />
         <SwitchToast />
