@@ -12,6 +12,7 @@ const HEADER_SIZE_WORDS = 1;
 const PROTOCOL_VERSION = 1;
 const EVENT_FLAG = 0b0100;
 const JSON_SERIALIZATION = 1;
+const CONNECTION_EVENTS = new Set([1, 2, 50, 51, 52]);
 
 export interface RealtimeFrame {
   messageType: number;
@@ -41,10 +42,11 @@ function appendUint32(parts: Buffer[], value: number) {
 }
 
 /**
- * 连接 ID 仅通过 X-Api-Connect-Id 请求头传递，二进制帧在 event 后直接写入 payload。
+ * 连接事件在 event 后直接写入 payload；会话事件在 event 后携带 sessionId。
  * 统一编码在这里可避免网关和测试分别处理字节序而产生兼容性偏差。
  */
 export function encodeRealtimeFrame(frame: RealtimeFrame): Buffer {
+  const sessionId = frame.sessionId ? Buffer.from(frame.sessionId, 'utf8') : undefined;
   const payload = Buffer.from(frame.payload);
   const header = Buffer.from([
     (PROTOCOL_VERSION << 4) | HEADER_SIZE_WORDS,
@@ -55,24 +57,30 @@ export function encodeRealtimeFrame(frame: RealtimeFrame): Buffer {
   const parts = [header];
 
   if (frame.event !== undefined) appendUint32(parts, frame.event);
+  if (sessionId) {
+    appendUint32(parts, sessionId.length);
+    parts.push(sessionId);
+  }
   appendUint32(parts, payload.length);
   parts.push(payload);
   return Buffer.concat(parts);
 }
 
-export function encodeRealtimeJson(event: number, body: unknown): Buffer {
+export function encodeRealtimeJson(event: number, body: unknown, sessionId?: string): Buffer {
   return encodeRealtimeFrame({
     messageType: REALTIME_MESSAGE_TYPE.CLIENT_JSON,
     event,
+    sessionId,
     payload: Buffer.from(JSON.stringify(body)),
     serialization: JSON_SERIALIZATION,
   });
 }
 
-export function encodeRealtimeAudio(audio: Buffer): Buffer {
+export function encodeRealtimeAudio(sessionId: string, audio: Buffer): Buffer {
   return encodeRealtimeFrame({
     messageType: REALTIME_MESSAGE_TYPE.CLIENT_AUDIO,
     event: 200,
+    sessionId,
     payload: audio,
     serialization: 0,
   });
@@ -105,7 +113,7 @@ export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
     offset += 4;
   }
   let sessionId: string | undefined;
-  if (messageType === REALTIME_MESSAGE_TYPE.SERVER_JSON || messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO) {
+  if (event !== undefined && !CONNECTION_EVENTS.has(event)) {
     if (data.length < offset + 4) throw new Error('Realtime frame session id is incomplete');
     const sessionIdSize = data.readUInt32BE(offset);
     offset += 4;

@@ -10,19 +10,28 @@ import {
   toRealtimeBuffer,
 } from '../src/services/doubaoRealtimeProtocol.js';
 
-test('encodes and decodes realtime JSON frames with event and session id', () => {
-  const encoded = encodeRealtimeJson(100, { dialog: { bot_name: '家庭导师' } });
+test('encodes connection frames without a binary id', () => {
+  const encoded = encodeRealtimeJson(1, {});
   assert.deepEqual(encoded.subarray(0, 4), Buffer.from([0x11, 0x14, 0x10, 0x00]));
+  assert.deepEqual(encoded, Buffer.from([0x11, 0x14, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x7b, 0x7d]));
   assert.equal(encoded.readUInt32BE(8), encoded.length - 12);
   const decoded = decodeRealtimeFrame(encoded);
   assert.equal(decoded.messageType, REALTIME_MESSAGE_TYPE.CLIENT_JSON);
+  assert.equal(decoded.event, 1);
+  assert.deepEqual(parseRealtimeJson(decoded), {});
+});
+
+test('encodes and decodes session JSON frames with a binary session id', () => {
+  const encoded = encodeRealtimeJson(100, { dialog: { bot_name: '家庭导师' } }, 'session-1');
+  const decoded = decodeRealtimeFrame(encoded);
   assert.equal(decoded.event, 100);
+  assert.equal(decoded.sessionId, 'session-1');
   assert.deepEqual(parseRealtimeJson(decoded), { dialog: { bot_name: '家庭导师' } });
 });
 
 test('encodes audio as a TaskRequest without changing PCM bytes', () => {
   const audio = Buffer.from([0x00, 0x80, 0xff, 0x7f]);
-  const decoded = decodeRealtimeFrame(encodeRealtimeAudio(audio));
+  const decoded = decodeRealtimeFrame(encodeRealtimeAudio('session-1', audio));
   assert.equal(decoded.messageType, REALTIME_MESSAGE_TYPE.CLIENT_AUDIO);
   assert.equal(decoded.event, 200);
   assert.deepEqual(decoded.payload, audio);

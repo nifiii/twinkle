@@ -14,6 +14,8 @@ import {
 
 const REALTIME_URL = 'wss://openspeech.bytedance.com/api/v3/realtime/dialogue';
 const START_CONNECTION = 1;
+const CONNECTION_STARTED = 50;
+const CONNECTION_FAILED = 51;
 const START_SESSION = 100;
 const FINISH_SESSION = 102;
 const CLIENT_INTERRUPT = 515;
@@ -114,6 +116,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
       client.close(1013);
       return;
     }
+    const realtimeConfig = config;
     if (!ownerId || !isExistingUser(ownerId)) {
       sendBrowser(client, { type: 'error', code: 'invalid_owner', text: '当前用户不存在，请刷新后重试' });
       client.close(1008);
@@ -131,6 +134,8 @@ export function attachLiveTutorGateway(server: HttpServer) {
     activeSessions++;
     owners.add(ownerId);
     let closed = false;
+    let sessionStartRequested = false;
+    let sessionStarted = false;
     let frameWindowStartedAt = Date.now();
     let framesInWindow = 0;
     const startedAt = Date.now();
@@ -152,7 +157,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
       activeSessions--;
       owners.delete(ownerId);
       if (upstream.readyState === WebSocket.OPEN) {
-        upstream.send(encodeRealtimeJson(FINISH_SESSION, {}));
+        if (sessionStarted) upstream.send(encodeRealtimeJson(FINISH_SESSION, {}, sessionId));
         upstream.close();
       }
       if (code) sendBrowser(client, { type: 'error', code, text });
@@ -163,22 +168,30 @@ export function attachLiveTutorGateway(server: HttpServer) {
 
     upstream.on('open', () => {
       upstream.send(encodeRealtimeJson(START_CONNECTION, {}));
+    });
+    function startSession() {
+      if (sessionStartRequested || closed || upstream.readyState !== WebSocket.OPEN) return;
+      sessionStartRequested = true;
       upstream.send(encodeRealtimeJson(START_SESSION, {
-        asr: { extra: { end_smooth_window_ms: config.vadEndSmoothWindowMs } },
+        asr: { extra: { end_smooth_window_ms: realtimeConfig.vadEndSmoothWindowMs } },
         tts: { audio_config: { channel: 1, format: 'pcm_s16le', sample_rate: 24000 } },
         dialog: {
           bot_name: '家庭导师',
           system_role: tutorRole(owner.name, owner.baseGrade ? `${owner.baseGrade} 年级` : null),
           speaking_style: '热情、专业、富有启发性',
-          extra: { model: config.model, enable_volc_websearch: false },
+          extra: { model: realtimeConfig.model, enable_volc_websearch: false },
         },
-      }));
-    });
+      }, sessionId));
+    }
     upstream.on('message', raw => {
       const data = toRealtimeBuffer(raw);
       try {
         if (isRealtimeAck(data)) return;
         const frame = decodeRealtimeFrame(data);
+        if (frame.event === CONNECTION_STARTED) {
+          startSession();
+          return;
+        }
         if (frame.messageType === REALTIME_MESSAGE_TYPE.SERVER_AUDIO && frame.event === TTS_RESPONSE) {
           sendBrowser(client, { type: 'audio', data: frame.payload.toString('base64') });
           return;
@@ -188,14 +201,17 @@ export function attachLiveTutorGateway(server: HttpServer) {
         if (frame.event === ASR_RESPONSE) sendBrowser(client, { type: 'transcript', side: 'user', text: eventText(payload) });
         if (frame.event === CHAT_RESPONSE) sendBrowser(client, { type: 'transcript', side: 'tutor', text: eventText(payload) });
         if (frame.event === ASR_ENDED) sendBrowser(client, { type: 'vad_ended' });
-        if (frame.event === 150) sendBrowser(client, { type: 'session_started' });
+        if (frame.event === 150) {
+          sessionStarted = true;
+          sendBrowser(client, { type: 'session_started' });
+        }
         if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR) {
           const errorPayload = parseRealtimeJson(frame);
           console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length} detail=${JSON.stringify(upstreamErrorDetail(errorPayload))}`);
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
           return;
         }
-        if (frame.event === 153 || frame.event === 599) {
+        if (frame.event === CONNECTION_FAILED || frame.event === 153 || frame.event === 599) {
           const errorPayload = parseRealtimeJson(frame);
           console.warn(`[LiveTutor] upstream session ended event=${frame.event} payloadLength=${frame.payload.length} detail=${JSON.stringify(upstreamErrorDetail(errorPayload))}`);
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
@@ -219,7 +235,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
         finish('audio_rate_limited', '音频发送过快，请重新开始辅导');
         return;
       }
-      upstream.send(encodeRealtimeAudio(Buffer.from(audio as Buffer)));
+      upstream.send(encodeRealtimeAudio(sessionId, Buffer.from(audio as Buffer)));
     });
     client.on('close', () => finish());
     client.on('error', () => finish());
