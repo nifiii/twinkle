@@ -12,6 +12,7 @@ import {
 
 test('encodes and decodes realtime JSON frames with event and session id', () => {
   const encoded = encodeRealtimeJson(100, 'session-1', { dialog: { bot_name: '家庭导师' } });
+  assert.deepEqual(encoded.subarray(0, 4), Buffer.from([0x11, 0x14, 0x10, 0x00]));
   const decoded = decodeRealtimeFrame(encoded);
   assert.equal(decoded.messageType, REALTIME_MESSAGE_TYPE.CLIENT_JSON);
   assert.equal(decoded.event, 100);
@@ -30,7 +31,7 @@ test('encodes audio as a TaskRequest without changing PCM bytes', () => {
 test('decodes server error frames without expecting a session id', () => {
   const payload = Buffer.from('{"message":"invalid credential"}');
   const frame = Buffer.alloc(12 + payload.length);
-  frame.set([0x14, 0xf0, 0x10, 0x00]);
+  frame.set([0x11, 0xf0, 0x10, 0x00]);
   frame.writeUInt32BE(401, 4);
   frame.writeUInt32BE(payload.length, 8);
   payload.copy(frame, 12);
@@ -48,6 +49,6 @@ test('normalizes every ws RawData representation before decoding', () => {
 });
 
 test('identifies server acknowledgements before business-frame decoding', () => {
-  assert.equal(isRealtimeAck(Buffer.from([0x14, 0xa0, 0x00, 0x00])), true);
-  assert.equal(isRealtimeAck(Buffer.from([0x14, 0x90, 0x10, 0x00])), false);
+  assert.equal(isRealtimeAck(Buffer.from([0x11, 0xa0, 0x00, 0x00])), true);
+  assert.equal(isRealtimeAck(Buffer.from([0x11, 0x90, 0x10, 0x00])), false);
 });

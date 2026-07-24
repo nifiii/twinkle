@@ -8,6 +8,7 @@ export const REALTIME_MESSAGE_TYPE = {
 } as const;
 
 const HEADER_SIZE = 4;
+const HEADER_SIZE_WORDS = 1;
 const PROTOCOL_VERSION = 1;
 const EVENT_FLAG = 0b0100;
 const JSON_SERIALIZATION = 1;
@@ -47,7 +48,7 @@ export function encodeRealtimeFrame(frame: RealtimeFrame): Buffer {
   const sessionId = Buffer.from(frame.sessionId || '', 'utf8');
   const payload = Buffer.from(frame.payload);
   const header = Buffer.from([
-    (PROTOCOL_VERSION << 4) | HEADER_SIZE,
+    (PROTOCOL_VERSION << 4) | HEADER_SIZE_WORDS,
     (frame.messageType << 4) | (frame.event === undefined ? 0 : EVENT_FLAG),
     (frame.serialization << 4),
     0,
@@ -85,7 +86,7 @@ export function encodeRealtimeAudio(sessionId: string, audio: Buffer): Buffer {
 export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
   if (data.length < HEADER_SIZE + 8) throw new Error('Realtime frame is too short');
   const version = data[0] >> 4;
-  const headerSize = data[0] & 0x0f;
+  const headerSize = (data[0] & 0x0f) * 4;
   if (version !== PROTOCOL_VERSION || headerSize !== HEADER_SIZE) {
     throw new Error('Unsupported realtime protocol header');
   }
