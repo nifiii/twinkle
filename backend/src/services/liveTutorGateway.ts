@@ -184,7 +184,11 @@ export function attachLiveTutorGateway(server: HttpServer) {
         if (frame.event === ASR_ENDED) sendBrowser(client, { type: 'vad_ended' });
         if (frame.event === 150) sendBrowser(client, { type: 'session_started' });
         if (frame.messageType === REALTIME_MESSAGE_TYPE.ERROR) {
-          console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length}`);
+          const errorPayload = parseRealtimeJson(frame);
+          const detail = String(errorPayload.message || errorPayload.error || errorPayload.msg || '')
+            .replace(/((?:access[_-]?(?:token|key)|app[_-]?key|authorization|secret|token|api[_-]?key)\s*[:=]\s*)[^,\s"'}]+/gi, '$1[redacted]')
+            .slice(0, 300);
+          console.warn(`[LiveTutor] upstream rejected request errorCode=${frame.event ?? 'unknown'} payloadLength=${frame.payload.length} detail=${JSON.stringify(detail)}`);
           finish('upstream_error', '实时导师暂时不可用，请稍后重试');
           return;
         }
