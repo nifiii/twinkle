@@ -202,8 +202,8 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
   const statusText = errorMessage || (isSessionReady ? (isSpeaking ? '导师正在回复' : isMicMuted ? '语音已暂停' : '正在聆听') : '正在连接');
 
   return (
-    <div className="fixed inset-0 z-[100] bg-zinc-100 animate-fade-in">
-      <section className="mx-auto flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl" aria-label="实时导师聊天">
+    <div className="pointer-events-none fixed inset-0 z-[100] flex items-end justify-end p-4 animate-fade-in">
+      <section className="pointer-events-auto flex h-[min(620px,calc(100dvh-2rem))] w-full max-w-md flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-2xl" aria-label="实时导师聊天">
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500 text-white" aria-hidden="true">
@@ -214,8 +214,9 @@ const LiveTutor: React.FC<LiveTutorProps> = ({ currentUser, onClose }) => {
               <p className="flex items-center gap-1 truncate text-xs text-zinc-500"><Wifi size={12} className={isSessionReady ? 'text-emerald-500' : 'text-zinc-400'} />{statusText}</p>
             </div>
           </div>
-          <button type="button" onClick={() => { closeSession(); onClose(); }} className="flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900" aria-label="关闭实时导师">
+          <button type="button" onClick={() => { closeSession(); onClose(); }} className="flex h-9 items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900" aria-label="关闭实时导师">
             <X size={20} />
+            <span>关闭</span>
           </button>
         </header>
 
