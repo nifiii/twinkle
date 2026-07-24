@@ -16,7 +16,6 @@ const JSON_SERIALIZATION = 1;
 export interface RealtimeFrame {
   messageType: number;
   event?: number;
-  sessionId?: string;
   payload: Buffer;
   serialization: number;
 }
@@ -29,7 +28,7 @@ export function toRealtimeBuffer(data: RealtimeWireData): Buffer {
   return Buffer.from(new Uint8Array(data));
 }
 
-// ACK 仅确认传输顺序，不带业务 sessionId，不能走完整业务帧解码。
+// ACK 仅确认传输顺序，不带业务 payload，不能走完整业务帧解码。
 export function isRealtimeAck(data: Buffer): boolean {
   return data.length >= HEADER_SIZE && (data[1] >> 4) === REALTIME_MESSAGE_TYPE.SERVER_ACK;
 }
@@ -41,11 +40,10 @@ function appendUint32(parts: Buffer[], value: number) {
 }
 
 /**
- * 豆包实时协议在 event 后固定携带 sessionId。
+ * 连接 ID 仅通过 X-Api-Connect-Id 请求头传递，二进制帧在 event 后直接写入 payload。
  * 统一编码在这里可避免网关和测试分别处理字节序而产生兼容性偏差。
  */
 export function encodeRealtimeFrame(frame: RealtimeFrame): Buffer {
-  const sessionId = Buffer.from(frame.sessionId || '', 'utf8');
   const payload = Buffer.from(frame.payload);
   const header = Buffer.from([
     (PROTOCOL_VERSION << 4) | HEADER_SIZE_WORDS,
@@ -56,28 +54,24 @@ export function encodeRealtimeFrame(frame: RealtimeFrame): Buffer {
   const parts = [header];
 
   if (frame.event !== undefined) appendUint32(parts, frame.event);
-  appendUint32(parts, sessionId.length);
-  parts.push(sessionId);
   appendUint32(parts, payload.length);
   parts.push(payload);
   return Buffer.concat(parts);
 }
 
-export function encodeRealtimeJson(event: number, sessionId: string, body: unknown): Buffer {
+export function encodeRealtimeJson(event: number, body: unknown): Buffer {
   return encodeRealtimeFrame({
     messageType: REALTIME_MESSAGE_TYPE.CLIENT_JSON,
     event,
-    sessionId,
     payload: Buffer.from(JSON.stringify(body)),
     serialization: JSON_SERIALIZATION,
   });
 }
 
-export function encodeRealtimeAudio(sessionId: string, audio: Buffer): Buffer {
+export function encodeRealtimeAudio(audio: Buffer): Buffer {
   return encodeRealtimeFrame({
     messageType: REALTIME_MESSAGE_TYPE.CLIENT_AUDIO,
     event: 200,
-    sessionId,
     payload: audio,
     serialization: 0,
   });
@@ -109,17 +103,12 @@ export function decodeRealtimeFrame(data: Buffer): RealtimeFrame {
     event = data.readUInt32BE(offset);
     offset += 4;
   }
-  if (data.length < offset + 4) throw new Error('Realtime frame session id is incomplete');
-  const sessionIdSize = data.readUInt32BE(offset);
-  offset += 4;
-  if (data.length < offset + sessionIdSize + 4) throw new Error('Realtime frame session id is invalid');
-  const sessionId = data.subarray(offset, offset + sessionIdSize).toString('utf8');
-  offset += sessionIdSize;
+  if (data.length < offset + 4) throw new Error('Realtime frame payload is incomplete');
   const payloadSize = data.readUInt32BE(offset);
   offset += 4;
   if (data.length !== offset + payloadSize) throw new Error('Realtime frame payload is invalid');
 
-  return { messageType, event, sessionId, payload: data.subarray(offset), serialization };
+  return { messageType, event, payload: data.subarray(offset), serialization };
 }
 
 export function parseRealtimeJson(frame: RealtimeFrame): Record<string, unknown> {

@@ -146,7 +146,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
       activeSessions--;
       owners.delete(ownerId);
       if (upstream.readyState === WebSocket.OPEN) {
-        upstream.send(encodeRealtimeJson(FINISH_SESSION, sessionId, {}));
+        upstream.send(encodeRealtimeJson(FINISH_SESSION, {}));
         upstream.close();
       }
       if (code) sendBrowser(client, { type: 'error', code, text });
@@ -156,8 +156,8 @@ export function attachLiveTutorGateway(server: HttpServer) {
     }
 
     upstream.on('open', () => {
-      upstream.send(encodeRealtimeJson(START_CONNECTION, sessionId, {}));
-      upstream.send(encodeRealtimeJson(START_SESSION, sessionId, {
+      upstream.send(encodeRealtimeJson(START_CONNECTION, {}));
+      upstream.send(encodeRealtimeJson(START_SESSION, {
         asr: { extra: { end_smooth_window_ms: config.vadEndSmoothWindowMs } },
         tts: { audio_config: { channel: 1, format: 'pcm_s16le', sample_rate: 24000 } },
         dialog: {
@@ -214,7 +214,7 @@ export function attachLiveTutorGateway(server: HttpServer) {
         finish('audio_rate_limited', '音频发送过快，请重新开始辅导');
         return;
       }
-      upstream.send(encodeRealtimeAudio(sessionId, Buffer.from(audio as Buffer)));
+      upstream.send(encodeRealtimeAudio(Buffer.from(audio as Buffer)));
     });
     client.on('close', () => finish());
     client.on('error', () => finish());
