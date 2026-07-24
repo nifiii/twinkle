@@ -405,21 +405,10 @@ const App: React.FC = () => {
       onEditProfile={(u) => setEditingProfile(u)}
       onCreateUser={handleCreateUser}
       onDeleteUser={handleDeleteUser}
+      onOpenLiveTutor={() => setIsLiveTutorOpen(true)}
     >
       <ErrorToast />
       <SwitchToast />
-      {!editingProfile && !isLiveTutorOpen && (
-        <button
-          type="button"
-          aria-label="打开实时导师"
-          title="实时导师"
-          onClick={() => setIsLiveTutorOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-lg bg-cyan-500 px-4 text-sm font-bold text-slate-950 shadow-lg transition-colors hover:bg-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200"
-        >
-          <i className="fa-solid fa-microphone" aria-hidden="true"></i>
-          <span>实时导师</span>
-        </button>
-      )}
       {isLiveTutorOpen && (
         <LiveTutor currentUser={currentUser} onClose={() => setIsLiveTutorOpen(false)} />
       )}

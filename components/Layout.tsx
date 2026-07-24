@@ -14,6 +14,7 @@ interface LayoutProps {
   onEditProfile: (user: UserProfile) => void;
   onCreateUser: (payload: { name: string; avatar?: string; birthDate?: string; baseGrade?: number }) => Promise<UserProfile>;
   onDeleteUser: (id: string) => void;
+  onOpenLiveTutor: () => void;
 }
 
 interface NavItem {
@@ -41,7 +42,8 @@ const Layout: React.FC<LayoutProps> = ({
   onSwitchUser,
   onEditProfile,
   onCreateUser,
-  onDeleteUser
+  onDeleteUser,
+  onOpenLiveTutor
 }) => {
   return (
     <div className="h-screen w-screen bg-cyber-gradient flex flex-col overflow-hidden relative">
@@ -50,15 +52,18 @@ const Layout: React.FC<LayoutProps> = ({
       <header className="fixed top-0 w-full h-16 backdrop-blur-xl bg-cyber-surface/60 border-b border-cyber-border/60 z-50 shadow-glow-sm">
         <div className="h-full px-4 md:px-6 flex items-center justify-between max-w-7xl mx-auto">
           {/* 左侧：Logo */}
-          <div
+          <button
+            type="button"
             className="flex items-center gap-3 cursor-pointer group"
-            onClick={() => onTabChange('dashboard')}
+            onClick={onOpenLiveTutor}
+            aria-label="打开 AI 导师"
+            title="AI 导师"
           >
             <div className="w-9 h-9 bg-gradient-to-br from-neon-blue via-sky-500 to-neon-purple rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-glow-sm group-hover:shadow-glow transition-shadow duration-300">
               <Sparkles size={20} className="text-white" />
             </div>
             <span className="text-lg font-semibold bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent hidden sm:block">闪闪</span>
-          </div>
+          </button>
 
           {/* 中间：页面标题（仅移动端） */}
           <h1 className="md:hidden font-medium text-cyber-text">
