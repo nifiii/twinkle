@@ -151,7 +151,7 @@ npm run dev          # http://localhost:3000
 
 - API Key 仅存在项目根 `.env`（已 gitignore）与容器环境变量中，前端代码不接触
 - 容器端口绑 `127.0.0.1`，外部仅能经 Nginx 访问
-- 用户数据按 `ownerId` 隔离
+- `ownerId` 仅用于受信任单设备环境中的本地资料上下文，不提供服务端认证、授权或跨学生安全隔离
 - 生产部署强烈建议启用 HTTPS（参见上文）
 - 不要将 `.env` 提交到 Git
 

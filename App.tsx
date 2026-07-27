@@ -7,6 +7,13 @@ import ResourcesShell, { ResourcesSub } from './components/ResourcesShell';
 import { AIClassroom } from './components/AIClassroom';
 import LiveTutor from './components/LiveTutor';
 import ProfilePage from './components/ProfilePage';
+import LearningHub from './components/LearningHub';
+import LearningPackage from './components/LearningPackage';
+import AssessmentComposer from './components/AssessmentComposer';
+import PaperExam from './components/PaperExam';
+import PaperPreview from './components/PaperPreview';
+import AttemptDiagnosis from './components/AttemptDiagnosis';
+import { createLearningPackage } from './services/learningPackageApi';
 import { ScannedItem, UserProfile, EBook, KnowledgeStatus, ProcessingStatus } from './types';
 import { fetchBooks, fetchScannedItems, deleteScannedItem } from './services/apiService';
 import { fetchUsers, updateUser, createUser, deleteUser } from './services/userService';
@@ -60,7 +67,7 @@ const normalizeSubject = (subject: string): string => {
 };
 
 // v2 IA：3 顶级 Tab。旧 hash（library_hub/capture/study_room/exams）一律回退到 dashboard。
-const VALID_TABS = new Set(['dashboard', 'resources', 'tutor']);
+const VALID_TABS = new Set(['dashboard', 'resources', 'tutor', 'learn']);
 const VALID_RESOURCES_SUBS = new Set(['library', 'capture', 'workshop']);
 
 // Hash 协议：
@@ -88,6 +95,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(getTabFromHash);
   const [tutorSubPath, setTutorSubPath] = useState<string>(() => parseHash().tutorSubPath);
   const [resourcesSub, setResourcesSub] = useState<string>(() => parseHash().resourcesSub || 'library');
+  const [learnPath, setLearnPath] = useState<string>(() => window.location.hash.slice(1).split('/').slice(1).join('/'));
   const [profiles, setProfiles] = useState<UserProfile[]>([FALLBACK_PROFILE]);
   const [currentUser, setCurrentUser] = useState<UserProfile>(FALLBACK_PROFILE);
   const [profilesLoading, setProfilesLoading] = useState(true);
@@ -130,6 +138,7 @@ const App: React.FC = () => {
       setActiveTab(tab);
       setTutorSubPath(ts);
       setResourcesSub(rs || 'library');
+      setLearnPath(tab === 'learn' ? restOfLearnPath() : '');
     };
     window.addEventListener('popstate', onHashSync);
     window.addEventListener('hashchange', onHashSync);
@@ -138,6 +147,8 @@ const App: React.FC = () => {
       window.removeEventListener('hashchange', onHashSync);
     };
   }, []);
+
+  const restOfLearnPath = () => window.location.hash.slice(1).split('/').slice(1).join('/');
 
   // 启动加载用户列表（替代 localStorage）
   useEffect(() => {
@@ -386,6 +397,22 @@ const App: React.FC = () => {
           );
         case 'tutor':
           return <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
+        case 'learn': {
+          if (learnPath === 'assessment/new') return <AssessmentComposer books={filteredBooks} currentUser={currentUser} onBack={() => { setLearnPath(''); window.location.hash = '#learn'; }} onPaperCreated={paperId => { setLearnPath(`paper/${paperId}`); window.location.hash = `#learn/paper/${paperId}`; }} />;
+          const attemptId = learnPath.startsWith('attempt/') ? learnPath.split('/')[1] : '';
+          if (attemptId) return <AttemptDiagnosis attemptId={attemptId} currentUser={currentUser} onBack={() => { setLearnPath(''); window.location.hash = '#learn'; }} />;
+          const previewMatch = learnPath.match(/^paper\/([^/]+)\/print$/);
+          if (previewMatch) return <PaperPreview paperId={previewMatch[1]} currentUser={currentUser} onBack={() => { setLearnPath(`paper/${previewMatch[1]}`); window.location.hash = `#learn/paper/${previewMatch[1]}`; }} />;
+          const paperId = learnPath.startsWith('paper/') ? learnPath.split('/')[1] : '';
+          if (paperId) return <PaperExam paperId={paperId} currentUser={currentUser} onBack={() => { setLearnPath('assessment/new'); window.location.hash = '#learn/assessment/new'; }} onPreview={() => { setLearnPath(`paper/${paperId}/print`); window.location.hash = `#learn/paper/${paperId}/print`; }} onSubmitted={attemptId => { setLearnPath(`attempt/${attemptId}`); window.location.hash = `#learn/attempt/${attemptId}`; }} />;
+          const packageId = learnPath.startsWith('package/') ? learnPath.split('/')[1] : '';
+          if (packageId) return <LearningPackage id={packageId} currentUser={currentUser} onBack={() => { setLearnPath(''); window.location.hash = '#learn'; }} />;
+          return <LearningHub books={filteredBooks} currentUser={currentUser} onActionSelected={async (action, book, chapterId) => {
+            if (action === 'assessment') { setLearnPath('assessment/new'); window.location.hash = '#learn/assessment/new'; return; }
+            const kind = action === 'listening' ? 'english-listening' : action === 'video' ? (book.subject === '英语' ? 'english-video' : book.subject === '科学' ? 'science-video' : 'math-thinking') : 'math-thinking';
+            try { const data = await createLearningPackage({ ownerId: currentUser.id, bookId: book.id, chapterIds: [chapterId], kind }); setLearnPath(`package/${data.id}`); window.location.hash = `#learn/package/${data.id}`; } catch (e: any) { setErrorMsg(e.message || '创建学习包失败'); }
+          }} />;
+        }
         default:
           return <Dashboard currentUser={currentUser} onTabChange={handleTabChange} />;
       }

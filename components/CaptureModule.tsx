@@ -67,6 +67,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const [processingStage, setProcessingStage] = useState<string>('');
   const [preview, setPreview] = useState<string | null>(null);
   const [reviewItem, setReviewItem] = useState<ScannedItem | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -194,7 +195,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
         const i = nextIndex++;
         if (i >= images.length) return;
         try {
-          const r = await analyzeImage(images[i]);
+          const r = await analyzeImage(images[i], setProcessingStage, currentUser.id);
           if (!mounted || aborted) return;
           results[i] = r;
           completed++;
@@ -275,8 +276,9 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
     if (!preview) return;
     setIsProcessing(true);
     setProcessingError(null);
+    setProcessingStage('正在提交识别任务...');
     try {
-      const result = await analyzeImage(preview);
+      const result = await analyzeImage(preview, setProcessingStage, currentUser.id);
       const newItem: ScannedItem = {
         id: Date.now().toString(),
         ownerId: currentUser.id,
@@ -292,6 +294,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
       setProcessingError(error.message || "AI 语义解构失败，请重试。");
     } finally {
       setIsProcessing(false);
+      setProcessingStage('');
     }
   };
 
@@ -949,7 +952,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
               <div className="flex flex-col items-center justify-center min-h-[50vh]">
                 <LoadingSpinner
                   size={48}
-                  text={isProcessingBatch ? `已完成 ${currentProcessingIndex} / ${pendingImages.length} 张（最多 3 张并发识别中）...` : "AI 正在识别中..."}
+                  text={isProcessingBatch ? `已完成 ${currentProcessingIndex} / ${pendingImages.length} 张：${processingStage || '正在识别中...'}` : (processingStage || 'AI 正在识别中...')}
                 />
                 <p className="text-sm text-cyber-muted mt-4">正在通过专家模型还原原始版面，请稍候</p>
 

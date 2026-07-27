@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
-import { Home, Library, GraduationCap, LucideIcon, Sparkles } from 'lucide-react';
+import { Home, Library, GraduationCap, BookOpenCheck, LucideIcon, Sparkles } from 'lucide-react';
 import UserSwitcher from './UserSwitcher';
 import FloatingDots from './FloatingDots';
 
@@ -27,6 +27,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'dashboard', label: '我的看板', icon: Home, color: '#4A90E2' },
   { id: 'resources', label: '学习资料', icon: Library, color: '#A78BFA' },
+  { id: 'learn', label: '学习中心', icon: BookOpenCheck, color: '#16803D' },
   { id: 'tutor', label: '智慧课堂', icon: GraduationCap, color: '#FB7185' },
 ];
 
@@ -91,7 +92,7 @@ const Layout: React.FC<LayoutProps> = ({
       </header>
 
       {/* 侧边栏导航（桌面端） */}
-      <nav className="hidden md:block fixed left-0 top-16 w-70 h-[calc(100vh-4rem)] bg-cyber-surface/40 backdrop-blur-lg border-r border-cyber-border/60 overflow-y-auto z-40">
+      <nav className="hidden md:block fixed left-0 top-16 w-72 h-[calc(100vh-4rem)] bg-cyber-surface/40 backdrop-blur-lg border-r border-cyber-border/60 overflow-y-auto z-40">
         <div className="p-4 space-y-1.5">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -164,7 +165,7 @@ const Layout: React.FC<LayoutProps> = ({
       </nav>
 
       {/* 主内容区 */}
-      <main className="pt-16 pb-20 md:pb-8 md:pl-70 min-h-screen overflow-y-auto relative z-10">
+      <main className="pt-16 pb-20 md:pb-8 md:pl-72 min-h-screen overflow-y-auto relative z-10">
         <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
           {children}
         </div>
