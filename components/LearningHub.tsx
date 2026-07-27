@@ -1,0 +1,107 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { BookOpenCheck, FileText, Headphones, PencilLine, Play } from 'lucide-react';
+import { EBook, UserProfile } from '../types';
+
+type LearningAction = 'listening' | 'video' | 'practice' | 'assessment';
+
+interface LearningHubProps {
+  books: EBook[];
+  currentUser: UserProfile;
+  onActionSelected: (action: LearningAction, book: EBook, chapterId: string) => void;
+}
+
+const actions: Array<{ id: LearningAction; label: string; hint: string; icon: typeof Headphones; color: string }> = [
+  { id: 'listening', label: '英语听力', hint: '约 10 分钟', icon: Headphones, color: 'text-cyan-700 bg-cyan-50 border-cyan-200' },
+  { id: 'video', label: '视频学习', hint: '约 12 分钟', icon: Play, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  { id: 'practice', label: '思维练习', hint: '约 15 分钟', icon: PencilLine, color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
+  { id: 'assessment', label: '开始测试', hint: '约 30 分钟', icon: FileText, color: 'text-rose-700 bg-rose-50 border-rose-200' },
+];
+
+function chaptersFor(book: EBook | undefined) {
+  if (!book) return [];
+  const chapters: Array<{ id: string; title: string }> = [];
+  const visit = (nodes: EBook['tableOfContents']) => {
+    for (const node of nodes || []) {
+      if (node.title?.trim()) chapters.push({ id: node.id, title: node.title.trim() });
+      if (node.children?.length) visit(node.children);
+    }
+  };
+  visit(book.tableOfContents);
+  return chapters;
+}
+
+export const LearningHub: React.FC<LearningHubProps> = ({ books, currentUser, onActionSelected }) => {
+  const eligibleBooks = useMemo(
+    () => books.filter(book => Boolean(book.subject?.trim() && book.grade?.trim() && book.tableOfContents?.length)),
+    [books],
+  );
+  const [bookId, setBookId] = useState('');
+  const selectedBook = eligibleBooks.find(book => book.id === bookId);
+  const chapters = useMemo(() => chaptersFor(selectedBook), [selectedBook]);
+  const [chapterId, setChapterId] = useState('');
+
+  useEffect(() => {
+    setBookId(current => eligibleBooks.some(book => book.id === current) ? current : eligibleBooks[0]?.id || '');
+  }, [eligibleBooks]);
+
+  useEffect(() => {
+    setChapterId(current => chapters.some(chapter => chapter.id === current) ? current : chapters[0]?.id || '');
+  }, [chapters]);
+
+  const missingMetadata = books.filter(book => !eligibleBooks.includes(book));
+  const chapterReady = Boolean(selectedBook && chapterId);
+
+  return (
+    <section className="mx-auto max-w-6xl text-slate-800">
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-slate-500">{currentUser.name} 的学习中心</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal">从教材开始</h1>
+        </div>
+        <BookOpenCheck aria-hidden="true" className="mt-1 text-emerald-700" size={28} />
+      </header>
+
+      {eligibleBooks.length === 0 ? (
+        <div className="border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950" role="status">
+          暂无可用于学习的教材。请先补全年级、学科和章节目录。
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 border-y border-slate-200 py-5 md:grid-cols-2">
+            <label className="grid gap-2 text-sm font-medium">
+              教材
+              <select value={bookId} onChange={event => setBookId(event.target.value)} className="min-h-11 border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
+                {eligibleBooks.map(book => <option key={book.id} value={book.id}>{book.title}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-medium">
+              章节
+              <select value={chapterId} onChange={event => setChapterId(event.target.value)} className="min-h-11 border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
+                {chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {actions.map(action => {
+              const Icon = action.icon;
+              return (
+                <button key={action.id} type="button" disabled={!chapterReady} onClick={() => selectedBook && onActionSelected(action.id, selectedBook, chapterId)} className={`min-h-36 border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-700 disabled:cursor-not-allowed disabled:opacity-45 ${action.color}`}>
+                  <Icon aria-hidden="true" size={24} />
+                  <span className="mt-5 block text-base font-semibold">{action.label}</span>
+                  <span className="mt-1 block text-sm opacity-80">{action.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {missingMetadata.length > 0 && (
+        <p className="mt-5 text-sm text-amber-800" role="status">{missingMetadata.length} 册教材尚未补全信息，暂不能生成学习内容。</p>
+      )}
+    </section>
+  );
+};
+
+export default LearningHub;

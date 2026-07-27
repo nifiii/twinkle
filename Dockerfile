@@ -43,6 +43,7 @@ COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
 
 COPY backend/src ./src
+COPY backend/assets ./assets
 COPY backend/tsconfig.json ./
 
 RUN npm run build
@@ -80,6 +81,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 RUN apk del python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
 
 COPY --from=backend-builder /app/dist ./dist
+COPY --from=backend-builder /app/assets ./assets
 COPY --from=frontend-builder /app/dist ./public
 
 ENV NODE_ENV=production \

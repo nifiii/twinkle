@@ -1,0 +1,16 @@
+import { Router, Request, Response } from 'express';
+import { readLearningFeatureFlags } from '../services/learningDomain.js';
+import { createPaperAttempt, getPaperAttempt, isPaperAttemptInputError, PaperAttemptValidationError, updatePaperAttempt } from '../services/paperAttemptService.js';
+import { getDiagnosis, gradeAttempt, GradingValidationError, reviewItem } from '../services/gradingService.js';
+
+const router = Router();
+const enabled = (res: Response) => { if (readLearningFeatureFlags().attempts) return true; res.status(503).json({ success: false, error: '网页作答功能尚未启用' }); return false; };
+const inputError = (error: unknown, res: Response) => res.status(400).json({ success: false, field: error instanceof PaperAttemptValidationError || error instanceof GradingValidationError ? error.field : 'ownerId', error: (error as Error).message });
+const gradingEnabled = (res: Response) => { if (readLearningFeatureFlags().grading) return true; res.status(503).json({ success: false, error: '学习诊断功能尚未启用' }); return false; };
+
+router.post('/paper-attempts', (req: Request, res: Response) => { if (!enabled(res)) return; try { return res.status(201).json({ success: true, data: createPaperAttempt(req.body || {}) }); } catch (error) { if (isPaperAttemptInputError(error)) return inputError(error, res); console.error('[paper-attempts] 创建失败:', error); return res.status(500).json({ success: false, error: '创建作答失败，请稍后重试' }); } });
+router.get('/paper-attempts/:id', (req: Request, res: Response) => { if (!enabled(res)) return; try { const data = getPaperAttempt(req.params.id, req.query.ownerId); return data ? res.json({ success: true, data }) : res.status(404).json({ success: false, error: '作答记录不存在' }); } catch (error) { if (isPaperAttemptInputError(error)) return inputError(error, res); return res.status(500).json({ success: false, error: '读取作答失败，请稍后重试' }); } });
+router.patch('/paper-attempts/:id', async (req: Request, res: Response) => { if (!enabled(res)) return; try { const attempt = updatePaperAttempt(req.params.id, req.body || {}); if (req.body?.action === 'submit' && readLearningFeatureFlags().grading) await gradeAttempt(attempt.id, req.body.ownerId); return res.json({ success: true, data: attempt }); } catch (error) { if (isPaperAttemptInputError(error) || error instanceof GradingValidationError) return inputError(error, res); console.error('[paper-attempts] 更新失败:', error); return res.status(500).json({ success: false, error: '保存作答失败，请稍后重试' }); } });
+router.get('/paper-attempts/:id/diagnosis', (req: Request, res: Response) => { if (!gradingEnabled(res)) return; try { const data = getDiagnosis(req.params.id, req.query.ownerId); return data ? res.json({ success: true, data }) : res.status(404).json({ success: false, error: '学习诊断不存在' }); } catch (error) { if (error instanceof GradingValidationError) return inputError(error, res); return res.status(500).json({ success: false, error: '读取学习诊断失败' }); } });
+router.post('/paper-attempts/:id/reviews', (req: Request, res: Response) => { if (!gradingEnabled(res)) return; try { return res.status(201).json({ success: true, data: reviewItem(req.params.id, req.body || {}) }); } catch (error) { if (error instanceof GradingValidationError) return inputError(error, res); return res.status(500).json({ success: false, error: '提交复核失败' }); } });
+export default router;

@@ -27,7 +27,10 @@ const USER_NAMES: Record<string, string> = {
  */
 router.post('/save-book', upload.none(), async (req: Request, res: Response) => {
   try {
-    const { metadata, coverImage, tempFilePath, ownerId = 'shared' } = req.body;
+    const { metadata, coverImage, tempFilePath } = req.body;
+    // Textbooks are the household's shared scope anchor. Student-specific
+    // ownership starts with learning attempts and diagnostics, not the source book.
+    const ownerId = 'shared';
 
     if (!metadata || !tempFilePath) {
       console.error('[saveBook] 缺少参数:', { metadata: !!metadata, tempFilePath: !!tempFilePath });

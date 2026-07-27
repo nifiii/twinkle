@@ -45,6 +45,7 @@ ssl/
 tmp/
 .trae/
 .docs/
+artifacts/benchmark/
 
 # Git worktrees
 .worktrees/
