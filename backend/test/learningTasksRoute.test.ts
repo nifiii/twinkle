@@ -42,6 +42,17 @@ test('learning task API returns a paged index and stable context and missing-tar
     assert.equal(candidates.status, 200);
     assert.deepEqual(candidatesBody.data, [{ source: 'scanned_item', scannedItemId: 'scan-candidate', problemIndex: 0, subject: '数学', title: '数学错题', contentExcerpt: '36 除以 6 等于多少？', knowledgePoints: ['除法'], createdAt: 1100 }]);
 
+    const olympiadMaterials = await fetch(`${baseUrl.replace('/learning-tasks', '/assistant/olympiad-materials')}?ownerId=child_1`);
+    assert.equal(olympiadMaterials.status, 200);
+    assert.deepEqual((await olympiadMaterials.json() as { data: unknown[] }).data, []);
+
+    const videoTask = await fetch(baseUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ownerId: 'child_1', requestKey: 'retired-video', taskType: 'video', source: { kind: 'chapter', bookId: 'missing', chapterIds: ['chapter-1'] } }),
+    });
+    assert.equal(videoTask.status, 400);
+    assert.equal((await videoTask.json() as { errorCode: string }).errorCode, 'capability_unavailable');
+
     const missingContext = await fetch(baseUrl);
     assert.equal(missingContext.status, 400);
     assert.equal((await missingContext.json() as { errorCode: string }).errorCode, 'invalid_context');

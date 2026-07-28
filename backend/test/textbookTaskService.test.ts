@@ -3,7 +3,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import { initLearningDomainDatabase } from '../src/services/learningDomain.js';
 import { getLearningTask } from '../src/services/learningTaskService.js';
-import { createTextbookTask, getChapterActions, TextbookTaskUnavailableError } from '../src/services/textbookTaskService.js';
+import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../src/services/textbookTaskService.js';
 
 function createDatabase(): Database.Database {
   const database = new Database(':memory:');
@@ -20,15 +20,14 @@ function createDatabase(): Database.Database {
   return database;
 }
 
-test('reports chapter actions by subject, resource health, and olympiad grade eligibility', () => {
+test('reports textbook chapter actions without video or Olympiad chapter coupling', () => {
   const database = createDatabase();
   const actions = getChapterActions('child_1', 'math-book', 'chapter-1', database);
-  assert.equal(actions.find(action => action.action === 'video')?.available, true);
-  assert.equal(actions.find(action => action.action === 'math_thinking')?.available, false);
+  assert.equal(actions.some(action => action.action === 'video'), false);
+  assert.equal(actions.find(action => action.action === 'math_thinking')?.available, true);
   database.prepare(`INSERT INTO books (id, title, subject, grade, ownerId, status, mdPath, tableOfContents, category) VALUES ('olympiad-4', '希望杯资料', '数学', '四年级', 'child_1', 'completed', '/tmp/olympiad.md', '[]', '奥数')`).run();
-  assert.equal(getChapterActions('child_1', 'math-book', 'chapter-1', database).find(action => action.action === 'math_thinking')?.available, true);
-  assert.deepEqual(getChapterActions('child_1', 'math-book', 'chapter-1', database).find(action => action.action === 'assessment')?.examModes, ['textbook', 'olympiad']);
-  assert.equal(getChapterActions('child_1', 'chinese-book', 'chapter-1', database).find(action => action.action === 'video')?.available, false);
+  assert.deepEqual(getOlympiadMaterials('child_1', database), [{ id: 'olympiad-4', title: '希望杯资料', grade: '四年级' }]);
+  assert.equal(getChapterActions('child_1', 'chinese-book', 'chapter-1', database).some(action => action.action === 'video'), false);
 });
 
 test('accepts numeric chapter IDs after browser route parameters convert them to strings', async () => {
@@ -49,13 +48,13 @@ test('accepts numeric chapter IDs after browser route parameters convert them to
   assert.deepEqual(getLearningTask(database, task.id, 'child_1')?.chapterIds, ['1']);
 });
 
-test('creates an Olympiad assessment only from a matching material reference', async () => {
+test('creates an Olympiad assessment from an independent material source without chapters', async () => {
   const database = createDatabase();
   database.prepare(`INSERT INTO books (id, title, subject, grade, ownerId, status, mdPath, tableOfContents, category) VALUES ('olympiad-4', '希望杯资料', '数学', '四年级', 'child_1', 'completed', '/tmp/olympiad.md', '[]', '奥数')`).run();
   const blueprintCalls: Record<string, unknown>[] = [];
-  const task = await createTextbookTask({
+  const task = await createOlympiadAssessmentTask({
     ownerId: 'child_1', requestKey: 'olympiad-assessment', taskType: 'assessment',
-    source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'], options: { examMode: 'olympiad', olympiadBookId: 'olympiad-4', examType: 'unit', difficulty: 'challenge' } },
+    source: { kind: 'olympiad', olympiadBookId: 'olympiad-4', options: { examType: 'unit', difficulty: 'challenge' } },
   }, {
     database,
     createAssessmentBlueprint: async (input: Record<string, unknown>) => { blueprintCalls.push(input); return { id: 'blueprint-1' } as any; },
@@ -64,28 +63,24 @@ test('creates an Olympiad assessment only from a matching material reference', a
   assert.equal(task.generationStatus, 'ready');
   assert.equal(blueprintCalls[0].examMode, 'olympiad');
   assert.equal(blueprintCalls[0].olympiadBookId, 'olympiad-4');
+  assert.equal('chapterIds' in blueprintCalls[0], false);
+  assert.equal(getLearningTask(database, task.id, 'child_1')?.sourceType, 'olympiad');
+  assert.deepEqual(getLearningTask(database, task.id, 'child_1')?.chapterIds, []);
   assert.equal((database.prepare(`SELECT entityType FROM learning_task_links WHERE taskId = ?`).get(task.id) as { entityType: string }).entityType, 'assessment_paper');
-  await assert.rejects(() => createTextbookTask({
+  await assert.rejects(() => createOlympiadAssessmentTask({
     ownerId: 'child_1', requestKey: 'olympiad-assessment-mismatch', taskType: 'assessment',
-    source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'], options: { examMode: 'olympiad', olympiadBookId: 'missing' } },
+    source: { kind: 'olympiad', olympiadBookId: 'missing' },
   }, { database }), TextbookTaskUnavailableError);
   assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_tasks WHERE requestKey = 'olympiad-assessment-mismatch'`).get() as { count: number }).count, 0);
 });
 
-test('creates an embedded-video task only for a selected reviewed resource', async () => {
+test('rejects direct video task creation without creating a task', async () => {
   const database = createDatabase();
-  const task = await createTextbookTask({
+  await assert.rejects(() => createTextbookTask({
     ownerId: 'child_1', requestKey: 'math-video-task', taskType: 'video',
     source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'], options: { resourceId: 'math-video' } },
-  }, { database });
-  assert.equal(task.generationStatus, 'ready');
-  assert.equal((database.prepare(`SELECT entityType, entityId FROM learning_task_links WHERE taskId = ?`).get(task.id) as { entityType: string; entityId: string }).entityType, 'external_resource');
-  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_packages`).get() as { count: number }).count, 0);
-  await assert.rejects(() => createTextbookTask({
-    ownerId: 'child_1', requestKey: 'english-video-task', taskType: 'video',
-    source: { kind: 'chapter', bookId: 'english-book', chapterIds: ['chapter-1'], options: { resourceId: 'missing' } },
   }, { database }), TextbookTaskUnavailableError);
-  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_tasks WHERE requestKey = 'english-video-task'`).get() as { count: number }).count, 0);
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_tasks WHERE requestKey = 'math-video-task'`).get() as { count: number }).count, 0);
 });
 
 test('archives generated courseware as one textbook task with its original entity link', async () => {

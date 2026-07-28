@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpenCheck, FileText, Headphones, PencilLine, Play } from 'lucide-react';
+import { BookOpenCheck, FileText, Headphones, PencilLine } from 'lucide-react';
 import { EBook, UserProfile } from '../types';
 
-type LearningAction = 'listening' | 'video' | 'practice' | 'assessment';
+type LearningAction = 'listening' | 'practice' | 'assessment';
 
 interface LearningHubProps {
   books: EBook[];
@@ -12,16 +12,15 @@ interface LearningHubProps {
 
 const actions: Array<{ id: LearningAction; label: string; hint: string; icon: typeof Headphones; color: string }> = [
   { id: 'listening', label: '英语听力', hint: '约 10 分钟', icon: Headphones, color: 'text-cyan-700 bg-cyan-50 border-cyan-200' },
-  { id: 'video', label: '视频学习', hint: '约 12 分钟', icon: Play, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   { id: 'practice', label: '思维练习', hint: '约 15 分钟', icon: PencilLine, color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
   { id: 'assessment', label: '开始测试', hint: '约 30 分钟', icon: FileText, color: 'text-rose-700 bg-rose-50 border-rose-200' },
 ];
 
 function actionsForSubject(subject: string): LearningAction[] {
   const normalized = subject.trim().toLocaleLowerCase();
-  if (normalized === '英语' || normalized === 'english') return ['listening', 'video', 'assessment'];
-  if (normalized === '数学' || ['math', 'maths', 'mathematics'].includes(normalized)) return ['video', 'practice', 'assessment'];
-  if (normalized === '科学' || normalized === 'science') return ['video', 'assessment'];
+  if (normalized === '英语' || normalized === 'english') return ['listening', 'assessment'];
+  if (normalized === '数学' || ['math', 'maths', 'mathematics'].includes(normalized)) return ['practice', 'assessment'];
+  if (normalized === '科学' || normalized === 'science') return ['assessment'];
   return ['assessment'];
 }
 

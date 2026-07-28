@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, BookOpen, BrainCircuit, CheckCircle2, ClipboardCheck, FileText, Headphones, Loader2, PlayCircle, Sparkles, Video } from 'lucide-react';
+import { AlertCircle, BookOpen, BrainCircuit, CheckCircle2, ClipboardCheck, FileText, Headphones, Library, Loader2, Sparkles, Trophy } from 'lucide-react';
 import { EBook, IndexStatus, UserProfile } from '../types';
 import { fetchBooks } from '../services/apiService';
-import { ChapterAction, createTextbookTask, createWrongReviewTask, fetchChapterActions, fetchWrongProblemCandidates, TextbookTaskAction, WrongProblemCandidate } from '../services/learningAssistantApi';
+import { ChapterAction, createOlympiadAssessmentTask, createTextbookTask, createWrongReviewTask, fetchChapterActions, fetchOlympiadMaterials, fetchWrongProblemCandidates, OlympiadMaterialOption, TextbookTaskAction, WrongProblemCandidate } from '../services/learningAssistantApi';
 
 const refKey = (item: WrongProblemCandidate) => `${item.source}:${item.source === 'scanned_item' ? item.scannedItemId : item.quizResultId}:${item.problemIndex}`;
 
@@ -14,26 +14,27 @@ interface LearningAssistantProps {
 }
 
 type ChapterOption = { id: string; title: string; breadcrumb: string };
+type TextbookMode = 'chapter' | 'olympiad';
 
 const ACTION_COPY: Record<TextbookTaskAction, { label: string; description: string; icon: typeof BookOpen }> = {
   courseware: { label: '生成课件', description: '把本章重点整理成可学习的课件', icon: BookOpen },
   classroom_quiz: { label: '随堂测验', description: '围绕本章知识点练一练', icon: ClipboardCheck },
   english_listening: { label: '英语听力', description: '用本章内容生成原创听力练习', icon: Headphones },
-  video: { label: '视频学习', description: '播放已审核的公开视频', icon: Video },
   math_thinking: { label: '思维训练', description: '围绕本章进行数学思维练习', icon: BrainCircuit },
   assessment: { label: '模拟考试', description: '生成可网页作答及下载的试卷', icon: FileText },
 };
 
-const ACTION_REASON: Record<string, string> = {
-  resource_unavailable: '暂无可核验资源',
-  olympiad_material_unavailable: '暂无年级匹配的奥数资料',
-  capability_unavailable: '当前教材暂不支持此学习内容',
-};
+const SOURCE_TABS: Array<{ id: 'textbook' | 'wrong'; label: string; icon: typeof BookOpen }> = [
+  { id: 'textbook', label: '教材章节学习', icon: BookOpen },
+  { id: 'wrong', label: '错题讲解与测验', icon: ClipboardCheck },
+];
 
 const flattenChapters = (nodes: EBook['tableOfContents'], ancestors: string[] = []): ChapterOption[] => nodes.flatMap(node => {
   const breadcrumb = [...ancestors, node.title].filter(Boolean);
   return [{ id: node.id, title: node.title, breadcrumb: breadcrumb.join(' / ') }, ...flattenChapters(node.children || [], breadcrumb)];
 });
+
+const controlClass = 'min-h-11 rounded-xl border border-cyber-border/60 bg-cyber-surface/60 px-3 text-base text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-60';
 
 const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view, onViewChange, onOpenClassroom }) => {
   const [items, setItems] = useState<WrongProblemCandidate[]>([]);
@@ -44,15 +45,15 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   const [error, setError] = useState('');
   const [createdTitle, setCreatedTitle] = useState('');
   const [books, setBooks] = useState<EBook[]>([]);
+  const [materials, setMaterials] = useState<OlympiadMaterialOption[]>([]);
   const [booksLoading, setBooksLoading] = useState(false);
   const [bookId, setBookId] = useState('');
   const [chapterId, setChapterId] = useState('');
   const [chapterActions, setChapterActions] = useState<ChapterAction[]>([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [textbookError, setTextbookError] = useState('');
+  const [textbookMode, setTextbookMode] = useState<TextbookMode>('chapter');
   const [selectedAction, setSelectedAction] = useState<TextbookTaskAction | null>(null);
-  const [resourceId, setResourceId] = useState('');
-  const [examMode, setExamMode] = useState<'textbook' | 'olympiad'>('textbook');
   const [olympiadBookId, setOlympiadBookId] = useState('');
   const [examType, setExamType] = useState('unit');
   const [difficulty, setDifficulty] = useState('standard');
@@ -72,22 +73,34 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     if (view !== 'textbook') return;
     let cancelled = false;
     setBooksLoading(true); setTextbookError('');
-    fetchBooks({ ownerId: currentUser.id })
-      .then(data => { if (!cancelled) { setBooks(data); setBookId(current => data.some(book => book.id === current) ? current : (data.find(book => book.indexStatus === IndexStatus.INDEXED)?.id || '')); } })
-      .catch(reason => { if (!cancelled) setTextbookError(reason instanceof Error ? reason.message : '教材读取失败'); })
+    Promise.all([fetchBooks({ ownerId: currentUser.id }), fetchOlympiadMaterials(currentUser.id)])
+      .then(([bookData, materialData]) => {
+        if (cancelled) return;
+        setBooks(bookData);
+        setMaterials(materialData);
+        setBookId(current => bookData.some(book => book.id === current) ? current : (bookData.find(book => book.indexStatus === IndexStatus.INDEXED)?.id || ''));
+        setOlympiadBookId(current => materialData.some(material => material.id === current) ? current : (materialData[0]?.id || ''));
+      })
+      .catch(reason => { if (!cancelled) setTextbookError(reason instanceof Error ? reason.message : '学习资料读取失败'); })
       .finally(() => { if (!cancelled) setBooksLoading(false); });
     return () => { cancelled = true; };
   }, [currentUser.id, view]);
 
   const selectedBook = useMemo(() => books.find(book => book.id === bookId), [books, bookId]);
   const chapters = useMemo(() => selectedBook ? flattenChapters(selectedBook.tableOfContents) : [], [selectedBook]);
+  const selectedChapter = chapters.find(chapter => chapter.id === chapterId);
+  const subjects = useMemo(() => [...new Set(items.map(item => item.subject))], [items]);
+  const visibleItems = useMemo(() => items.filter(item => item.subject === subject), [items, subject]);
+  const selectedItems = useMemo(() => visibleItems.filter(item => selected.has(refKey(item))), [visibleItems, selected]);
+  const knowledgePoints = useMemo(() => [...new Set(selectedItems.flatMap(item => item.knowledgePoints))], [selectedItems]);
+  const actionDetail = chapterActions.find(action => action.action === selectedAction);
 
   useEffect(() => {
     setChapterId(current => chapters.some(chapter => chapter.id === current) ? current : (chapters[0]?.id || ''));
   }, [bookId, chapters]);
 
   useEffect(() => {
-    if (view !== 'textbook' || !bookId || !chapterId) { setChapterActions([]); return; }
+    if (view !== 'textbook' || textbookMode !== 'chapter' || !bookId || !chapterId) { setChapterActions([]); return; }
     let cancelled = false;
     setActionsLoading(true); setTextbookError(''); setSelectedAction(null);
     fetchChapterActions({ ownerId: currentUser.id, bookId, chapterId })
@@ -95,12 +108,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
       .catch(reason => { if (!cancelled) setTextbookError(reason instanceof Error ? reason.message : '章节能力读取失败'); })
       .finally(() => { if (!cancelled) setActionsLoading(false); });
     return () => { cancelled = true; };
-  }, [bookId, chapterId, currentUser.id, view]);
-
-  const subjects = useMemo(() => [...new Set(items.map(item => item.subject))], [items]);
-  const visibleItems = useMemo(() => items.filter(item => item.subject === subject), [items, subject]);
-  const selectedItems = useMemo(() => visibleItems.filter(item => selected.has(refKey(item))), [visibleItems, selected]);
-  const knowledgePoints = useMemo(() => [...new Set(selectedItems.flatMap(item => item.knowledgePoints))], [selectedItems]);
+  }, [bookId, chapterId, currentUser.id, textbookMode, view]);
 
   const toggle = (item: WrongProblemCandidate) => {
     const key = refKey(item);
@@ -112,7 +120,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     });
   };
 
-  const create = async () => {
+  const createWrongReview = async () => {
     if (!selectedItems.length || creating) return;
     setCreating(true); setError(''); setCreatedTitle('');
     try {
@@ -122,30 +130,16 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     finally { setCreating(false); }
   };
 
-  const actionDetail = chapterActions.find(action => action.action === selectedAction);
-  const selectedChapter = chapters.find(chapter => chapter.id === chapterId);
-  const canCreateTextbookTask = Boolean(selectedAction && actionDetail?.available && !textbookCreating &&
-    (selectedAction !== 'video' || resourceId) &&
-    (selectedAction !== 'assessment' || examMode !== 'olympiad' || olympiadBookId));
-
   const selectAction = (action: ChapterAction) => {
     if (!action.available) return;
     setSelectedAction(action.action);
     setTextbookError('');
-    setResourceId(action.resourceOptions?.[0]?.id || '');
-    setExamMode(action.examModes?.includes('textbook') ? 'textbook' : (action.examModes?.[0] || 'textbook'));
-    setOlympiadBookId(action.olympiadMaterials?.[0]?.id || '');
   };
 
-  const createTextbook = async () => {
-    if (!selectedAction || !selectedBook || !selectedChapter || !canCreateTextbookTask) return;
+  const createChapterTask = async () => {
+    if (!selectedAction || !selectedBook || !selectedChapter || !actionDetail?.available || textbookCreating) return;
     setTextbookCreating(true); setTextbookError(''); setCreatedTitle('');
-    const options: Record<string, string> = {};
-    if (selectedAction === 'video') options.resourceId = resourceId;
-    if (selectedAction === 'assessment') {
-      options.examMode = examMode; options.examType = examType; options.difficulty = difficulty;
-      if (examMode === 'olympiad') options.olympiadBookId = olympiadBookId;
-    }
+    const options: Record<string, string> = selectedAction === 'assessment' ? { examType, difficulty } : {};
     try {
       const task = await createTextbookTask({ ownerId: currentUser.id, userName: currentUser.name, taskType: selectedAction, bookId: selectedBook.id, chapterId: selectedChapter.id, options });
       setCreatedTitle(task.title);
@@ -153,21 +147,40 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     finally { setTextbookCreating(false); }
   };
 
-  return <section className="mx-auto max-w-6xl space-y-6" aria-labelledby="assistant-title">
-    <header className="flex items-center gap-3 border-b border-cyber-border pb-5"><Sparkles className="text-neon-blue" aria-hidden="true" /><div><h1 id="assistant-title" className="text-2xl font-semibold text-cyber-text">学习小助手</h1><p className="mt-1 text-sm text-cyber-muted">{currentUser.name} 的教材学习、错题讲解与测验</p></div></header>
-    <div role="tablist" aria-label="学习来源" className="flex gap-2 overflow-x-auto"><button type="button" role="tab" aria-selected={view === 'textbook'} onClick={() => onViewChange('textbook')} className={`min-h-11 border-b-2 px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue ${view === 'textbook' ? 'border-neon-blue text-neon-blue' : 'border-transparent text-cyber-muted'}`}>教材章节学习</button><button type="button" role="tab" aria-selected={view === 'wrong'} onClick={() => onViewChange('wrong')} className={`min-h-11 border-b-2 px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue ${view === 'wrong' ? 'border-neon-blue text-neon-blue' : 'border-transparent text-cyber-muted'}`}>错题讲解与测验</button></div>
-    {view === 'wrong' && error && <div role="alert" className="flex items-center gap-2 border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{error}</div>}
-    {createdTitle && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"><span className="flex items-center gap-2"><CheckCircle2 size={18} />已生成“{createdTitle}”</span><button type="button" onClick={onOpenClassroom} className="min-h-11 border border-emerald-700 px-3 font-medium text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-700">进入智慧课堂</button></div>}
-    {view === 'wrong' && (loading ? <div role="status" className="flex items-center gap-2 py-12 text-cyber-muted"><Loader2 className="animate-spin" />正在读取错题</div> : !items.length ? <div role="status" className="border border-cyber-border p-8 text-sm text-cyber-muted">暂无可用于讲解的错题。</div> : <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]"><div className="space-y-3"><label className="grid gap-2 text-sm font-medium text-cyber-text">学科<select value={subject} onChange={event => { setSubject(event.target.value); setSelected(new Set()); }} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-neon-blue">{subjects.map(value => <option key={value}>{value}</option>)}</select></label>{visibleItems.map(item => { const checked = selected.has(refKey(item)); return <label key={refKey(item)} className="flex gap-3 border border-cyber-border p-4 text-left"><input type="checkbox" checked={checked} onChange={() => toggle(item)} className="mt-1 h-4 w-4" /><span className="min-w-0"><span className="text-sm font-medium text-cyber-text">{item.title}</span><span className="mt-1 block break-words text-sm text-cyber-muted">{item.contentExcerpt}</span>{item.knowledgePoints.length > 0 && <span className="mt-2 block text-xs text-neon-blue">{item.knowledgePoints.join(' · ')}</span>}</span></label>; })}</div><aside className="border border-cyber-border p-4"><div className="flex items-center gap-2 text-sm font-semibold text-cyber-text"><ClipboardCheck size={18} />本次选择</div><p className="mt-3 text-sm text-cyber-muted">已选 {selectedItems.length}/10 题</p>{knowledgePoints.length > 0 && <p className="mt-3 text-sm text-cyber-muted">{knowledgePoints.join(' · ')}</p>}<button type="button" disabled={!selectedItems.length || creating} onClick={create} className="mt-6 min-h-11 w-full bg-neon-blue px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-2 focus:ring-neon-blue">{creating ? '正在生成讲解与测验' : '生成讲解与测验'}</button></aside></div>)}
+  const createOlympiadTask = async () => {
+    if (!olympiadBookId || textbookCreating) return;
+    setTextbookCreating(true); setTextbookError(''); setCreatedTitle('');
+    try {
+      const task = await createOlympiadAssessmentTask({ ownerId: currentUser.id, userName: currentUser.name, olympiadBookId, examType, difficulty });
+      setCreatedTitle(task.title);
+    } catch (reason) { setTextbookError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
+    finally { setTextbookCreating(false); }
+  };
+
+  const changeTextbookMode = (mode: TextbookMode) => {
+    setTextbookMode(mode);
+    setSelectedAction(null);
+    setTextbookError('');
+  };
+
+  return <section className="mx-auto max-w-6xl space-y-6 animate-fade-in" aria-labelledby="assistant-title">
+    <header className="rounded-2xl border border-cyber-border/60 bg-cyber-surface/60 p-6 backdrop-blur-md">
+      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neon-blue/15 shadow-glow-sm"><Sparkles className="text-neon-blue" size={24} aria-hidden="true" /></div><div><h1 id="assistant-title" className="bg-gradient-to-r from-neon-blue via-cyber-text to-neon-purple bg-clip-text text-xl font-bold tracking-tight text-transparent">{currentUser.name} 的学习小助手</h1><p className="mt-1 text-sm text-cyber-muted">从教材章节或错题开始，创建下一项学习任务</p></div></div>
+    </header>
+    <div role="tablist" aria-label="学习来源" className="flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 p-1 backdrop-blur-md">
+      {SOURCE_TABS.map(tab => { const active = view === tab.id; const Icon = tab.icon; return <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => onViewChange(tab.id)} className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-neon-blue ${active ? 'border-neon-blue/40 bg-gradient-to-r from-neon-blue/25 to-neon-purple/20 text-neon-blue shadow-glow-sm' : 'border-transparent text-cyber-muted hover:bg-white/5 hover:text-cyber-text'}`}><Icon size={16} />{tab.label}</button>; })}
+    </div>
+    {createdTitle && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/70 bg-emerald-50/90 p-4 text-sm text-emerald-900"><span className="flex items-center gap-2"><CheckCircle2 size={18} />已生成“{createdTitle}”</span><button type="button" onClick={onOpenClassroom} className="min-h-10 rounded-xl border border-emerald-700 px-3 font-medium text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-700">进入智慧课堂</button></div>}
+
+    {view === 'wrong' && <>
+      {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{error}</div>}
+      {loading ? <div role="status" className="flex min-h-48 items-center justify-center gap-2 rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 text-cyber-muted"><Loader2 className="animate-spin" />正在读取错题</div> : !items.length ? <div role="status" className="rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 p-10 text-center text-sm text-cyber-muted">暂无可用于讲解的错题。</div> : <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]"><div className="space-y-3"><label className="grid gap-2 text-sm font-medium text-cyber-text">学科<select value={subject} onChange={event => { setSubject(event.target.value); setSelected(new Set()); }} className={controlClass}>{subjects.map(value => <option key={value}>{value}</option>)}</select></label>{visibleItems.map(item => { const checked = selected.has(refKey(item)); return <label key={refKey(item)} className={`flex gap-3 rounded-xl border p-4 text-left transition-colors ${checked ? 'border-neon-blue/50 bg-neon-blue/10' : 'border-cyber-border/60 bg-cyber-surface/60 hover:bg-white/5'}`}><input type="checkbox" checked={checked} onChange={() => toggle(item)} className="mt-1 h-4 w-4 accent-neon-blue" /><span className="min-w-0"><span className="text-sm font-semibold text-cyber-text">{item.title}</span><span className="mt-1 block break-words text-sm text-cyber-muted">{item.contentExcerpt}</span>{item.knowledgePoints.length > 0 && <span className="mt-2 block text-xs text-neon-blue">{item.knowledgePoints.join(' · ')}</span>}</span></label>; })}</div><aside className="h-fit rounded-2xl border border-cyber-border/60 bg-cyber-surface/60 p-5 shadow-glow-sm lg:sticky lg:top-5"><div className="flex items-center gap-2 text-sm font-semibold text-cyber-text"><ClipboardCheck size={18} className="text-neon-blue" />本次选择</div><p className="mt-3 text-sm text-cyber-muted">已选 {selectedItems.length}/10 题</p>{knowledgePoints.length > 0 && <p className="mt-3 break-words text-sm text-cyber-muted">{knowledgePoints.join(' · ')}</p>}<button type="button" disabled={!selectedItems.length || creating} onClick={() => void createWrongReview()} className="mt-6 min-h-11 w-full rounded-xl bg-gradient-to-r from-neon-blue to-neon-purple px-4 text-sm font-semibold text-white shadow-glow-sm disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-2 focus:ring-neon-blue">{creating ? '正在生成讲解与测验' : '生成讲解与测验'}</button></aside></div>}
+    </>}
+
     {view === 'textbook' && <section aria-label="教材章节学习" className="space-y-5">
-      {textbookError && <div role="alert" className="flex items-center gap-2 border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{textbookError}</div>}
-      {booksLoading ? <div role="status" className="flex items-center gap-2 py-12 text-cyber-muted"><Loader2 className="animate-spin" />正在读取教材</div> : !books.length ? <div role="status" className="border border-cyber-border p-8 text-sm text-cyber-muted">暂无已上传教材。上传并完成解析后可按章节创建学习内容。</div> : <>
-        <div className="grid gap-4 md:grid-cols-2"><label className="grid gap-2 text-sm font-medium text-cyber-text">教材<select value={bookId} onChange={event => setBookId(event.target.value)} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-neon-blue">{books.map(book => <option key={book.id} value={book.id} disabled={book.indexStatus !== IndexStatus.INDEXED}>{book.title}{book.indexStatus !== IndexStatus.INDEXED ? '（解析中）' : ''}</option>)}</select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">具体章节<select value={chapterId} onChange={event => setChapterId(event.target.value)} disabled={!chapters.length} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-neon-blue">{chapters.length ? chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.breadcrumb}</option>) : <option>暂无可用章节</option>}</select></label></div>
-        {!selectedBook || selectedBook.indexStatus !== IndexStatus.INDEXED ? <div role="status" className="border border-cyber-border p-5 text-sm text-cyber-muted">请先选择已完成解析且包含目录的教材。</div> : !chapters.length ? <div role="status" className="border border-cyber-border p-5 text-sm text-cyber-muted">该教材暂无可用章节目录。</div> : actionsLoading ? <div role="status" className="flex items-center gap-2 py-8 text-cyber-muted"><Loader2 className="animate-spin" />正在检查本章可用学习内容</div> : <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{chapterActions.map(action => { const detail = ACTION_COPY[action.action]; const Icon = detail.icon; return <button type="button" key={action.action} disabled={!action.available} onClick={() => selectAction(action)} className={`min-h-32 border p-4 text-left focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed ${selectedAction === action.action ? 'border-neon-blue bg-neon-blue/10' : 'border-cyber-border bg-white'} ${!action.available ? 'opacity-55' : ''}`}><Icon size={20} className="text-neon-blue" /><span className="mt-3 block text-sm font-semibold text-cyber-text">{detail.label}</span><span className="mt-1 block text-xs leading-5 text-cyber-muted">{action.available ? detail.description : ACTION_REASON[action.reasonCode || ''] || '当前不可用'}</span></button>; })}</div>
-          {selectedAction && actionDetail && <aside className="border border-cyber-border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold text-cyber-text"><PlayCircle size={18} className="text-neon-blue" />{ACTION_COPY[selectedAction].label}</div><p className="mt-2 text-sm text-cyber-muted">《{selectedBook.title}》· {selectedChapter?.breadcrumb}</p>{selectedAction === 'video' && <label className="mt-4 grid gap-2 text-sm font-medium text-cyber-text">视频资源<select value={resourceId} onChange={event => setResourceId(event.target.value)} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-neon-blue">{actionDetail.resourceOptions?.map(resource => <option key={resource.id} value={resource.id}>{resource.title} · {Math.ceil(resource.durationSeconds / 60)} 分钟 · {resource.ageLabel}</option>)}</select></label>}{selectedAction === 'assessment' && <div className="mt-4 grid gap-4 md:grid-cols-3"><label className="grid gap-2 text-sm font-medium text-cyber-text">范围<span className="min-h-11 border border-cyber-border bg-slate-50 px-3 py-3 text-slate-600">当前章节</span></label><label className="grid gap-2 text-sm font-medium text-cyber-text">类型<select value={examType} onChange={event => setExamType(event.target.value)} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800"><option value="unit">单元测试</option><option value="midterm">期中测试</option><option value="final">期末测试</option></select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">难度<select value={difficulty} onChange={event => setDifficulty(event.target.value)} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800"><option value="basic">基础</option><option value="standard">标准</option><option value="challenge">挑战</option></select></label>{actionDetail.examModes?.includes('olympiad') && <><label className="grid gap-2 text-sm font-medium text-cyber-text">模式<select value={examMode} onChange={event => setExamMode(event.target.value as 'textbook' | 'olympiad')} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800"><option value="textbook">教材模拟</option><option value="olympiad">奥数模拟</option></select></label>{examMode === 'olympiad' && <label className="grid gap-2 text-sm font-medium text-cyber-text md:col-span-2">奥数资料<select value={olympiadBookId} onChange={event => setOlympiadBookId(event.target.value)} className="min-h-11 border border-cyber-border bg-white px-3 text-base text-slate-800">{actionDetail.olympiadMaterials?.map(material => <option key={material.id} value={material.id}>{material.title}</option>)}</select></label>}</>}</div>}<button type="button" disabled={!canCreateTextbookTask} onClick={createTextbook} className="mt-5 min-h-11 w-full bg-neon-blue px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-2 focus:ring-neon-blue">{textbookCreating ? '正在创建学习任务' : `创建${ACTION_COPY[selectedAction].label}`}</button></aside>}
-        </>}
-      </>}
+      {textbookError && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{textbookError}</div>}
+      <div role="tablist" aria-label="教材学习方式" className="flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 p-1 backdrop-blur-md"><button type="button" role="tab" aria-selected={textbookMode === 'chapter'} onClick={() => changeTextbookMode('chapter')} className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-neon-blue ${textbookMode === 'chapter' ? 'border-neon-blue/40 bg-neon-blue/15 text-neon-blue' : 'border-transparent text-cyber-muted hover:bg-white/5'}`}><Library size={16} />按章节学习</button><button type="button" role="tab" aria-selected={textbookMode === 'olympiad'} onClick={() => changeTextbookMode('olympiad')} className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-neon-blue ${textbookMode === 'olympiad' ? 'border-neon-purple/40 bg-neon-purple/15 text-neon-purple' : 'border-transparent text-cyber-muted hover:bg-white/5'}`}><Trophy size={16} />奥数模拟考试</button></div>
+      {booksLoading ? <div role="status" className="flex min-h-48 items-center justify-center gap-2 rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 text-cyber-muted"><Loader2 className="animate-spin" />正在读取学习资料</div> : textbookMode === 'olympiad' ? <section className="rounded-2xl border border-cyber-border/60 bg-cyber-surface/60 p-5 shadow-glow-sm"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon-purple/15"><Trophy size={20} className="text-neon-purple" /></div><div><h2 className="text-base font-semibold text-cyber-text">奥数模拟考试</h2><p className="mt-1 text-sm text-cyber-muted">仅依据所选奥数资料的年级、类别与标签组织原创题目，不选择教材章节，也不读取资料正文。</p></div></div>{materials.length ? <div className="mt-5 grid gap-4 md:grid-cols-3"><label className="grid gap-2 text-sm font-medium text-cyber-text md:col-span-2">奥数资料<select value={olympiadBookId} onChange={event => setOlympiadBookId(event.target.value)} className={controlClass}>{materials.map(material => <option key={material.id} value={material.id}>{material.title} · {material.grade}</option>)}</select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">试卷类型<select value={examType} onChange={event => setExamType(event.target.value)} className={controlClass}><option value="unit">阶段测验</option><option value="midterm">综合测验</option><option value="final">竞赛模拟</option></select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">难度<select value={difficulty} onChange={event => setDifficulty(event.target.value)} className={controlClass}><option value="basic">基础</option><option value="standard">标准</option><option value="challenge">挑战</option></select></label></div> : <div role="status" className="mt-5 rounded-xl border border-cyber-border/60 bg-white/5 p-4 text-sm text-cyber-muted">暂无标注年级的奥数资料。请先在学习资料中归档奥数材料。</div>}<button type="button" disabled={!olympiadBookId || textbookCreating} onClick={() => void createOlympiadTask()} className="mt-5 min-h-11 w-full rounded-xl bg-gradient-to-r from-neon-blue to-neon-purple px-4 text-sm font-semibold text-white shadow-glow-sm disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-2 focus:ring-neon-blue">{textbookCreating ? '正在创建奥数试卷' : '创建奥数模拟考试'}</button></section> : !books.length ? <div role="status" className="rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 p-10 text-center text-sm text-cyber-muted">暂无已上传教材。上传并完成解析后可按章节创建学习内容。</div> : <><div className="grid gap-4 md:grid-cols-2"><label className="grid gap-2 text-sm font-medium text-cyber-text">教材<select value={bookId} onChange={event => setBookId(event.target.value)} className={controlClass}>{books.map(book => <option key={book.id} value={book.id} disabled={book.indexStatus !== IndexStatus.INDEXED}>{book.title}{book.indexStatus !== IndexStatus.INDEXED ? '（解析中）' : ''}</option>)}</select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">具体章节<select value={chapterId} onChange={event => setChapterId(event.target.value)} disabled={!chapters.length} className={controlClass}>{chapters.length ? chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.breadcrumb}</option>) : <option>暂无可用章节</option>}</select></label></div>{!selectedBook || selectedBook.indexStatus !== IndexStatus.INDEXED ? <div role="status" className="rounded-xl border border-cyber-border/60 bg-cyber-surface/50 p-5 text-sm text-cyber-muted">请先选择已完成解析且包含目录的教材。</div> : !chapters.length ? <div role="status" className="rounded-xl border border-cyber-border/60 bg-cyber-surface/50 p-5 text-sm text-cyber-muted">该教材暂无可用章节目录。</div> : actionsLoading ? <div role="status" className="flex min-h-32 items-center justify-center gap-2 rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 text-cyber-muted"><Loader2 className="animate-spin" />正在检查本章可用学习内容</div> : <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{chapterActions.map(action => { const detail = ACTION_COPY[action.action]; const Icon = detail.icon; return <button type="button" key={action.action} disabled={!action.available} onClick={() => selectAction(action)} className={`min-h-32 rounded-2xl border p-4 text-left transition-all focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-55 ${selectedAction === action.action ? 'border-neon-blue/50 bg-neon-blue/10 shadow-glow-sm' : 'border-cyber-border/60 bg-cyber-surface/60 hover:bg-white/5'}`}><Icon size={20} className="text-neon-blue" /><span className="mt-3 block text-sm font-semibold text-cyber-text">{detail.label}</span><span className="mt-1 block text-xs leading-5 text-cyber-muted">{action.available ? detail.description : '当前教材暂不支持此学习内容'}</span></button>; })}</div>{selectedAction && actionDetail && <aside className="rounded-2xl border border-cyber-border/60 bg-cyber-surface/60 p-5 shadow-glow-sm"><div className="flex items-center gap-2 text-sm font-semibold text-cyber-text"><Sparkles size={18} className="text-neon-blue" />{ACTION_COPY[selectedAction].label}</div><p className="mt-2 text-sm text-cyber-muted">《{selectedBook.title}》· {selectedChapter?.breadcrumb}</p>{selectedAction === 'assessment' && <div className="mt-4 grid gap-4 md:grid-cols-3"><label className="grid gap-2 text-sm font-medium text-cyber-text">范围<span className={`${controlClass} flex items-center bg-white/5 text-cyber-muted`}>当前章节</span></label><label className="grid gap-2 text-sm font-medium text-cyber-text">类型<select value={examType} onChange={event => setExamType(event.target.value)} className={controlClass}><option value="unit">单元测试</option><option value="midterm">期中测试</option><option value="final">期末测试</option></select></label><label className="grid gap-2 text-sm font-medium text-cyber-text">难度<select value={difficulty} onChange={event => setDifficulty(event.target.value)} className={controlClass}><option value="basic">基础</option><option value="standard">标准</option><option value="challenge">挑战</option></select></label></div>}<button type="button" disabled={textbookCreating} onClick={() => void createChapterTask()} className="mt-5 min-h-11 w-full rounded-xl bg-gradient-to-r from-neon-blue to-neon-purple px-4 text-sm font-semibold text-white shadow-glow-sm disabled:cursor-not-allowed disabled:opacity-45 focus:outline-none focus:ring-2 focus:ring-neon-blue">{textbookCreating ? '正在创建学习任务' : `创建${ACTION_COPY[selectedAction].label}`}</button></aside>}</>}</>}
     </section>}
   </section>;
 };

@@ -96,7 +96,7 @@ test('returns task source, links, and events without embedding original content'
   assert.equal(learningTaskTargetExists(database, 'child_1', detail!.primaryLink!), false);
 });
 
-test('marks a previously approved video task unavailable when its reviewed resource changes state', () => {
+test('preserves historical video task records without exposing playback data', () => {
   const database = createDatabase();
   seedLegacyContent(database);
   database.prepare(`INSERT INTO external_resources
@@ -110,12 +110,11 @@ test('marks a previously approved video task unavailable when its reviewed resou
   updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1550 });
   completeLearningTask(database, task.id, [{ entityType: 'external_resource', entityId: 'video-1', role: 'resource' }], 1600);
 
-  assert.equal(getClassroomTask(database, task.id, 'child_1')?.videoResource?.embedUrl, 'https://video.example/embed/1');
-  database.prepare("UPDATE external_resources SET linkHealthStatus = 'blocked' WHERE id = ?").run('video-1');
   const detail = getClassroomTask(database, task.id, 'child_1');
 
-  assert.equal(detail?.generationStatus, 'resource_unavailable');
-  assert.equal(detail?.errorCode, 'resource_unavailable');
+  assert.equal(detail?.generationStatus, 'ready');
+  assert.equal(detail?.errorCode, 'video_discontinued');
+  assert.match(String(detail?.errorMessage), /视频学习已取消/);
   assert.equal(detail?.videoResource, null);
   assert.equal(learningTaskTargetExists(database, 'child_1', detail!.primaryLink!), false);
 });
