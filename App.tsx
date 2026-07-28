@@ -85,7 +85,7 @@ const parseHash = (): { tab: string; resourcesSub: string; tutorSubPath: string;
   } else if (tab === 'tutor') {
     tutorSubPath = rest.join('/');
   } else if (tab === 'assistant') {
-    assistantSubPath = rest[0] === 'textbook' ? 'textbook' : 'wrong';
+    assistantSubPath = rest[0] === 'wrong' ? 'wrong' : 'textbook';
   }
   return { tab, resourcesSub, tutorSubPath, assistantSubPath };
 };
@@ -95,7 +95,7 @@ const getTabFromHash = (): string => parseHash().tab;
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(getTabFromHash);
   const [tutorSubPath, setTutorSubPath] = useState<string>(() => parseHash().tutorSubPath);
-  const [assistantSubPath, setAssistantSubPath] = useState<string>(() => parseHash().assistantSubPath || 'wrong');
+  const [assistantSubPath, setAssistantSubPath] = useState<string>(() => parseHash().assistantSubPath || 'textbook');
   const [resourcesSub, setResourcesSub] = useState<string>(() => parseHash().resourcesSub || 'library');
   const [profiles, setProfiles] = useState<UserProfile[]>([FALLBACK_PROFILE]);
   const [currentUser, setCurrentUser] = useState<UserProfile>(FALLBACK_PROFILE);
@@ -118,7 +118,7 @@ const App: React.FC = () => {
       setResourcesSub('library');
       window.history.pushState(null, '', `#${tab}/${subPath}`);
     } else if (tab === 'assistant') {
-      const sub = subPath === 'textbook' ? 'textbook' : 'wrong';
+      const sub = subPath === 'wrong' ? 'wrong' : 'textbook';
       setAssistantSubPath(sub);
       setTutorSubPath('');
       setResourcesSub('library');
@@ -131,7 +131,7 @@ const App: React.FC = () => {
     } else {
       setTutorSubPath('');
       setResourcesSub('library');
-      setAssistantSubPath('wrong');
+      setAssistantSubPath('textbook');
       window.history.pushState(null, '', `#${tab}`);
     }
   };
@@ -147,7 +147,7 @@ const App: React.FC = () => {
       setActiveTab(tab);
       setTutorSubPath(ts);
       setResourcesSub(rs || 'library');
-      setAssistantSubPath(as || 'wrong');
+      setAssistantSubPath(as || 'textbook');
     };
     window.addEventListener('popstate', onHashSync);
     window.addEventListener('hashchange', onHashSync);
