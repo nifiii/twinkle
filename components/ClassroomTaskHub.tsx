@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ArrowLeft, BookOpen, ChevronRight, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, BookOpen, ChevronRight, GraduationCap, Loader2, RefreshCw } from 'lucide-react';
 import { ClassroomTaskDetail, ClassroomTaskSummary, fetchClassroomTask, fetchClassroomTasks, retryClassroomTask } from '../services/classroomTaskApi';
 import ClassroomLegacyDetail from './ClassroomLegacyDetail';
 
@@ -67,6 +67,9 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
     });
   }, [books]);
 
+  // This must run before task-detail returns so this component keeps one stable Hook order.
+  const categoryCounts = useMemo(() => new Map(TASK_CATEGORIES.map(item => [item.id, items.filter(task => item.types.includes(task.taskType as never)).length])), [items]);
+
   const load = async (cursor?: string, append = false) => {
     if (append) setLoadingMore(true);
     else { setLoading(true); setError(''); }
@@ -131,13 +134,12 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
   }
 
   const selectedCategory = TASK_CATEGORIES.find(item => item.id === category)!;
-  const categoryCounts = useMemo(() => new Map(TASK_CATEGORIES.map(item => [item.id, items.filter(task => item.types.includes(task.taskType as never)).length])), [items]);
   const visibleItems = items.filter(item => selectedCategory.types.includes(item.taskType as never));
   return <section className="mx-auto max-w-6xl space-y-6 animate-fade-in" aria-labelledby="classroom-title">
     <header className="bg-cyber-surface/60 backdrop-blur-md rounded-2xl border border-cyber-border/60 p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neon-blue/15 shadow-glow-sm"><Sparkles className="text-neon-blue" size={24} aria-hidden="true" /></div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-400/15"><GraduationCap className="text-rose-400" size={24} aria-hidden="true" /></div>
           <div><h1 id="classroom-title" className="text-xl font-bold tracking-tight bg-gradient-to-r from-neon-blue via-cyber-text to-neon-purple bg-clip-text text-transparent">{currentUser.name} 的智慧课堂</h1><p className="mt-1 text-sm text-cyber-muted">按学习内容和学科查看待完成的任务</p></div>
         </div>
         <button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-cyber-border/60 px-3 text-sm text-cyber-text transition-colors hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-neon-blue"><RefreshCw size={16} />刷新</button>
