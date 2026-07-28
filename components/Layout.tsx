@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
-import { Home, Library, GraduationCap, BookOpenCheck, LucideIcon, Sparkles } from 'lucide-react';
+import { Home, Library, GraduationCap, LucideIcon, Sparkles } from 'lucide-react';
 import UserSwitcher from './UserSwitcher';
 import FloatingDots from './FloatingDots';
 
@@ -26,7 +26,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'dashboard', label: '我的看板', icon: Home, color: '#4A90E2' },
   { id: 'resources', label: '学习资料', icon: Library, color: '#A78BFA' },
-  { id: 'learn', label: '学习中心', icon: BookOpenCheck, color: '#16803D' },
+  { id: 'assistant', label: '学习小助手', icon: Sparkles, color: '#16803D' },
   { id: 'tutor', label: '智慧课堂', icon: GraduationCap, color: '#FB7185' },
 ];
 
@@ -67,6 +67,8 @@ const Layout: React.FC<LayoutProps> = ({
               ? `${currentUser.name} 的看板`
               : activeTab === 'resources'
               ? `${currentUser.name} 的学习资料`
+              : activeTab === 'assistant'
+              ? `${currentUser.name} 的学习小助手`
               : activeTab === 'tutor'
               ? `${currentUser.name} 的智慧课堂`
               : '闪闪'}

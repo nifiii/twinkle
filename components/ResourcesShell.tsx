@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { BookOpen, FileText, Wrench, LucideIcon, Library } from 'lucide-react';
+import { BookOpen, FileText, LucideIcon, Library } from 'lucide-react';
 import { UserProfile, ScannedItem, EBook } from '../types';
 import LibraryHub from './LibraryHub';
-import StudyRoom from './StudyRoom';
 import CaptureModule from './CaptureModule';
 
-export type ResourcesSub = 'library' | 'capture' | 'workshop';
+export type ResourcesSub = 'library' | 'capture';
 
 interface ResourcesShellProps {
   currentUser: UserProfile;
@@ -26,7 +25,6 @@ interface SubTabDef {
 const SUB_TABS: SubTabDef[] = [
   { id: 'library',  label: '我的书架',   icon: BookOpen },
   { id: 'capture',  label: '错题本',     icon: FileText },
-  { id: 'workshop', label: '学习小助手', icon: Wrench },
 ];
 
 const ResourcesShell: React.FC<ResourcesShellProps> = ({
@@ -67,9 +65,6 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
                   </p>
                   <p>
                     <span className="text-neon-amber font-medium">错题本</span> 上传试卷 / 作业图片，自动识别错题归档文件
-                  </p>
-                  <p>
-                    <span className="text-neon-purple font-medium">学习小助手</span> 根据上传教材和作业本中错题，智能生成课件与测验
                   </p>
                 </div>
               </div>
@@ -123,14 +118,6 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
           hideHeader
           lockedSubTab={captureLockedTab}
           onLockedSubTabChange={setCaptureLockedTab}
-        />
-      )}
-      {sub === 'workshop' && (
-        <StudyRoom
-          currentUser={currentUser}
-          books={books}
-          wrongProblems={scannedItems}
-          hideHeader
         />
       )}
     </div>
