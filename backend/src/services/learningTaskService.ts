@@ -29,7 +29,7 @@ export const LEARNING_TASK_LEARNING_STATUSES = [
 export type LearningTaskType = typeof LEARNING_TASK_TYPES[number];
 export type LearningTaskGenerationStatus = typeof LEARNING_TASK_GENERATION_STATUSES[number];
 export type LearningTaskLearningStatus = typeof LEARNING_TASK_LEARNING_STATUSES[number];
-export type LearningTaskSourceType = 'chapter' | 'wrong_problems';
+export type LearningTaskSourceType = 'chapter' | 'olympiad' | 'wrong_problems';
 export type WrongProblemRef =
   | { source: 'scanned_item'; scannedItemId: string; problemIndex: number }
   | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
@@ -115,7 +115,7 @@ function parseTaskType(value: unknown): LearningTaskType {
 }
 
 function parseSourceType(value: unknown): LearningTaskSourceType {
-  if (value !== 'chapter' && value !== 'wrong_problems') {
+  if (value !== 'chapter' && value !== 'olympiad' && value !== 'wrong_problems') {
     throw new LearningTaskValidationError('sourceType', '学习任务来源不支持');
   }
   return value;
@@ -221,6 +221,9 @@ export function createLearningTask(database: Database.Database, input: CreateLea
   }
   if (sourceType === 'wrong_problems' && (bookId || chapterIds.length > 0 || wrongProblemRefs.length === 0)) {
     throw new LearningTaskValidationError('sourceType', '错题任务必须包含错题引用，且不能包含教材章节');
+  }
+  if (sourceType === 'olympiad' && (!bookId || chapterIds.length > 0 || wrongProblemRefs.length > 0 || taskType !== 'assessment')) {
+    throw new LearningTaskValidationError('sourceType', '奥数任务必须引用奥数资料，只能生成试卷，且不能包含教材章节或错题引用');
   }
 
   const existing = database.prepare('SELECT * FROM learning_tasks WHERE ownerId = ? AND requestKey = ?').get(ownerId, requestKey) as LearningTaskRow | undefined;

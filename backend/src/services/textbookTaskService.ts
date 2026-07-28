@@ -9,7 +9,7 @@ import { LearningTaskValidationError, LearningTaskType, createLearningTask, comp
 import { parseLearningOwnerId } from './learningDomain.js';
 import { normalizeSubject } from '../utils/subject.js';
 
-type TextbookAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'video' | 'math_thinking' | 'assessment';
+type TextbookAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'math_thinking' | 'assessment';
 type ChapterNode = { id: string | number; title: string; children?: ChapterNode[] };
 type Book = { id: string; title: string; subject: string; grade: string | null; ownerId: string; status: string; mdPath: string | null; tableOfContents: string | null };
 
@@ -52,20 +52,21 @@ function chaptersFor(book: Book, value: unknown): ChapterNode[] {
   return selected as ChapterNode[];
 }
 function supported(subject: string): TextbookAction[] {
-  const common: TextbookAction[] = ['courseware', 'classroom_quiz', 'video', 'assessment'];
+  const common: TextbookAction[] = ['courseware', 'classroom_quiz', 'assessment'];
   if (subject === '英语') return [...common, 'english_listening'];
   if (subject === '数学') return [...common, 'math_thinking'];
   return common;
 }
-function healthyResources(database: Database.Database, subject: string, grade: string | null): Array<{ id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string }> {
-  if (!grade?.trim()) return [];
-  return database.prepare(`SELECT id, title, durationSeconds, ageLabel, embedUrl FROM external_resources
-    WHERE subject = ? AND grade = ? AND status = 'approved' AND reviewedAt IS NOT NULL AND linkHealthStatus = 'healthy' AND embedStatus = 'allowed'
-      AND title IS NOT NULL AND durationSeconds > 0 AND ageLabel IS NOT NULL AND embedUrl IS NOT NULL`).all(subject, grade) as Array<{ id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string }>;
-}
-function olympiadMaterials(database: Database.Database, ownerId: string, grade: string | null): Array<{ id: string; title: string }> {
-  if (!grade?.trim()) return [];
-  return database.prepare(`SELECT id, title FROM books WHERE (ownerId = ? OR ownerId = 'shared') AND grade = ? AND subject = '数学' AND (category LIKE '%奥数%' OR tags LIKE '%奥数%') ORDER BY title ASC`).all(ownerId, grade) as Array<{ id: string; title: string }>;
+export function getOlympiadMaterials(ownerIdInput: unknown, database: Database.Database = db): Array<{ id: string; title: string; grade: string }> {
+  const ownerId = parseLearningOwnerId(ownerIdInput);
+  return database.prepare(`
+    SELECT id, title, grade FROM books
+    WHERE (ownerId = ? OR ownerId = 'shared')
+      AND subject = '数学'
+      AND grade IS NOT NULL AND TRIM(grade) <> ''
+      AND (category LIKE '%奥数%' OR tags LIKE '%奥数%')
+    ORDER BY grade ASC, title ASC
+  `).all(ownerId) as Array<{ id: string; title: string; grade: string }>;
 }
 async function defaultGenerate(input: { action: TextbookAction; subject: string; chapterTitles: string[]; excerpt: string }): Promise<{ slides?: any[]; questions?: any[] }> {
   const apiKey = process.env.ARK_API_KEY; const model = process.env.ARK_MODEL_ID;
@@ -91,14 +92,10 @@ async function excerpt(book: Book, selected: ChapterNode[], read: (path: string)
   return content.slice(0, 12000);
 }
 
-export function getChapterActions(ownerIdInput: unknown, bookId: unknown, chapterId: unknown, database: Database.Database = db): Array<{ action: TextbookAction; available: boolean; reasonCode?: string; resourceOptions?: Array<{ id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string }>; examModes?: Array<'textbook' | 'olympiad'>; olympiadMaterials?: Array<{ id: string; title: string }> }> {
+export function getChapterActions(ownerIdInput: unknown, bookId: unknown, chapterId: unknown, database: Database.Database = db): Array<{ action: TextbookAction; available: boolean; reasonCode?: string }> {
   const ownerId = parseLearningOwnerId(ownerIdInput); const book = bookFor(database, ownerId, bookId); chaptersFor(book, [chapterId]);
-  const subject = normalizeSubject(book.subject); const videos = healthyResources(database, subject, book.grade);
-  const olympiad = subject === '数学' ? olympiadMaterials(database, ownerId, book.grade) : [];
+  const subject = normalizeSubject(book.subject);
   return supported(subject).map(action => {
-    if (action === 'video') return videos.length ? { action, available: true, resourceOptions: videos } : { action, available: false, reasonCode: 'resource_unavailable' };
-    if (action === 'math_thinking' && !olympiad.length) return { action, available: false, reasonCode: 'olympiad_material_unavailable' };
-    if (action === 'assessment' && subject === '数学') return { action, available: true, examModes: olympiad.length ? ['textbook', 'olympiad'] : ['textbook'], olympiadMaterials: olympiad };
     return { action, available: true };
   });
 }
@@ -106,31 +103,20 @@ export function getChapterActions(ownerIdInput: unknown, bookId: unknown, chapte
 export async function createTextbookTask(request: Record<string, unknown>, dependencies: TextbookTaskDependencies = {}): Promise<{ id: string; generationStatus: string }> {
   const database = dependencies.database || db; const ownerId = parseLearningOwnerId(request.ownerId); const source = request.source as Record<string, unknown> | undefined;
   if (!source || source.kind !== 'chapter') throw new LearningTaskValidationError('source', '教材任务来源不正确');
+  if (request.taskType === 'video') throw new TextbookTaskUnavailableError('capability_unavailable', '视频学习功能已取消');
   const action = request.taskType as TextbookAction; const book = bookFor(database, ownerId, source.bookId); const chapters = chaptersFor(book, source.chapterIds); const subject = normalizeSubject(book.subject);
   if (!supported(subject).includes(action)) throw new TextbookTaskUnavailableError('capability_unavailable', '该学科不支持此学习动作');
-  const videoResources = action === 'video' ? healthyResources(database, subject, book.grade) : [];
-  if (action === 'video' && !videoResources.length) throw new TextbookTaskUnavailableError('resource_unavailable', '暂无可核验资源');
-  const selectedResource = action === 'video'
-    ? videoResources.find(item => item.id === text((source.options as Record<string, unknown> | undefined)?.resourceId, 'source.options.resourceId', '视频资源'))
-    : undefined;
-  if (action === 'video' && !selectedResource) throw new TextbookTaskUnavailableError('resource_unavailable', '暂无可核验资源');
   const assessmentOptions = action === 'assessment' ? (source.options as Record<string, unknown> | undefined || {}) : null;
   const examMode = assessmentOptions?.examMode === undefined || assessmentOptions?.examMode === null || assessmentOptions?.examMode === '' ? 'textbook' : assessmentOptions.examMode;
   if (action === 'assessment' && examMode !== 'textbook' && examMode !== 'olympiad') throw new LearningTaskValidationError('source.options.examMode', '考试模式不支持');
   if (action === 'assessment' && examMode === 'olympiad') {
-    if (subject !== '数学') throw new TextbookTaskUnavailableError('capability_unavailable', '奥数模拟考试仅支持数学');
-    const materialId = text(assessmentOptions?.olympiadBookId, 'source.options.olympiadBookId', '奥数资料');
-    if (!olympiadMaterials(database, ownerId, book.grade).some(material => material.id === materialId)) throw new TextbookTaskUnavailableError('resource_unavailable', '暂无年级匹配的奥数资料');
+    throw new TextbookTaskUnavailableError('capability_unavailable', '奥数模拟考试不支持教材章节，请从奥数资料入口创建');
   }
   const title = `${chapters.map(chapter => chapter.title).join('、')}·${action}`;
   const { task, created } = createLearningTask(database, { ownerId, requestKey: request.requestKey, taskType: taskType(action), sourceType: 'chapter', subject, grade: book.grade || '未标注年级', title, bookId: book.id, chapterIds: chapters.map(chapter => chapter.id) });
   if (!created) return { id: task.id, generationStatus: task.generationStatus };
   try {
     updateLearningTaskGenerationStatus(database, task.id, 'running');
-    if (action === 'video') {
-      completeLearningTask(database, task.id, [{ entityType: 'external_resource', entityId: selectedResource!.id, role: 'resource' }]);
-      return { id: task.id, generationStatus: 'ready' };
-    }
     if (action === 'english_listening') {
       const packageData = await createLearningPackage({ ownerId, bookId: book.id, chapterIds: chapters.map(chapter => chapter.id), kind: 'english-listening' }, { database });
       completeLearningTask(database, task.id, [{ entityType: 'learning_package', entityId: String(packageData.id), role: 'primary' }]);
@@ -160,6 +146,35 @@ export async function createTextbookTask(request: Record<string, unknown>, depen
   } catch (error) {
     const unavailable = error instanceof TextbookTaskUnavailableError;
     updateLearningTaskGenerationStatus(database, task.id, unavailable ? 'resource_unavailable' : 'failed', { errorCode: unavailable ? error.code : 'generation_failed', errorMessage: error instanceof Error ? error.message : '教材任务生成失败' });
+    throw error;
+  }
+}
+
+export async function createOlympiadAssessmentTask(request: Record<string, unknown>, dependencies: TextbookTaskDependencies = {}): Promise<{ id: string; generationStatus: string }> {
+  const database = dependencies.database || db; const ownerId = parseLearningOwnerId(request.ownerId); const source = request.source as Record<string, unknown> | undefined;
+  if (!source || source.kind !== 'olympiad') throw new LearningTaskValidationError('source', '奥数任务来源不正确');
+  if (request.taskType !== 'assessment') throw new TextbookTaskUnavailableError('capability_unavailable', '奥数资料仅支持生成模拟考试');
+  const materialId = text(source.olympiadBookId, 'source.olympiadBookId', '奥数资料');
+  const material = getOlympiadMaterials(ownerId, database).find(item => item.id === materialId);
+  if (!material) throw new TextbookTaskUnavailableError('resource_unavailable', '暂无可用的奥数资料');
+  const options = source.options as Record<string, unknown> | undefined || {};
+  const title = `${material.title}·奥数模拟考试`;
+  const { task, created } = createLearningTask(database, {
+    ownerId, requestKey: request.requestKey, taskType: 'assessment', sourceType: 'olympiad', subject: '数学', grade: material.grade,
+    title, bookId: material.id, chapterIds: [],
+  });
+  if (!created) return { id: task.id, generationStatus: task.generationStatus };
+  try {
+    updateLearningTaskGenerationStatus(database, task.id, 'running');
+    const blueprint = await (dependencies.createAssessmentBlueprint || createAssessmentBlueprint)({
+      ownerId, olympiadBookId: material.id, examType: options.examType || 'unit', examMode: 'olympiad', difficulty: options.difficulty || 'standard',
+    }, { database });
+    const paper = await (dependencies.createAssessmentPaper || createAssessmentPaper)({ ownerId, blueprintId: blueprint.id }, { database });
+    completeLearningTask(database, task.id, [{ entityType: 'assessment_paper', entityId: paper.id, role: 'paper' }]);
+    return { id: task.id, generationStatus: 'ready' };
+  } catch (error) {
+    const unavailable = error instanceof TextbookTaskUnavailableError;
+    updateLearningTaskGenerationStatus(database, task.id, unavailable ? 'resource_unavailable' : 'failed', { errorCode: unavailable ? error.code : 'generation_failed', errorMessage: error instanceof Error ? error.message : '奥数试卷生成失败' });
     throw error;
   }
 }

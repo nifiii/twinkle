@@ -55,27 +55,28 @@ test('matches a Chinese unit title to its numbered textbook heading without cros
   assert.doesNotMatch(String(calls[0].textbookExcerpt), /第二单元正文/);
 });
 
-test('uses only matching Olympiad material metadata for an original math paper', async () => {
+test('creates an Olympiad paper without chapters or reading source body', async () => {
   const database = setup();
   database.prepare(`INSERT INTO books (id, title, ownerId, subject, grade, tableOfContents, mdPath, status, category, tags) VALUES ('olympiad', '希望杯四年级', 'child_1', '数学', '小学四年级上册', '[]', '/tmp/olympiad.md', 'completed', '奥数', '["数感","数形结合"]')`).run();
-  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-1'], examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad' }, { database });
+  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad' }, { database });
   const calls: Record<string, unknown>[] = [];
   await createAssessmentPaper({ ownerId: 'child_1', blueprintId: blueprint.id }, {
     database,
-    readMarkdown: async () => '# 第一单元\n教材正文足够长，用于生成原创题目，不引用奥数资料原题。'.repeat(8),
+    readMarkdown: async () => { throw new Error('奥数试卷不得读取资料正文'); },
     generatePaper: async (input: Record<string, unknown>) => { calls.push(input); return generated(input); },
   });
   assert.equal(blueprint.examMode, 'olympiad');
+  assert.deepEqual(blueprint.chapterIds, []);
   assert.equal(blueprint.olympiadMaterial?.id, 'olympiad');
-  assert.deepEqual(calls[0].olympiadStyle, { id: 'olympiad', title: '希望杯四年级', category: '奥数', tags: '["数感","数形结合"]' });
+  assert.deepEqual(calls[0].olympiadStyle, { id: 'olympiad', title: '希望杯四年级', category: '奥数', tags: '["数感","数形结合"]', grade: '小学四年级上册' });
+  assert.equal('textbookExcerpt' in calls[0], false);
   assert.doesNotMatch(JSON.stringify(calls[0]), /olympiad\.md/);
 });
 
-test('rejects an Olympiad material with a different grade', async () => {
+test('accepts any explicitly labelled Olympiad material grade as its own paper scope', async () => {
   const database = setup();
   database.prepare(`INSERT INTO books (id, title, ownerId, subject, grade, tableOfContents, mdPath, status, category) VALUES ('olympiad-five', '希望杯五年级', 'child_1', '数学', '小学五年级上册', '[]', '/tmp/olympiad-five.md', 'completed', '奥数')`).run();
-  await assert.rejects(
-    () => createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-1'], examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad-five' }, { database }),
-    (error: unknown) => error instanceof Error && /年级匹配/.test(error.message),
-  );
+  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad-five' }, { database });
+  assert.equal(blueprint.grade, '小学五年级上册');
+  assert.deepEqual(blueprint.chapterIds, []);
 });

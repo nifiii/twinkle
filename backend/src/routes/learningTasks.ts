@@ -4,7 +4,7 @@ import { LearningOwnerContextError, readLearningFeatureFlags } from '../services
 import { LearningTaskValidationError, retryLearningTask } from '../services/learningTaskService.js';
 import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLegacyTaskReference } from '../services/classroomTaskQueryService.js';
 import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
-import { createTextbookTask, getChapterActions, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
+import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -51,11 +51,17 @@ router.get('/assistant/books/:bookId/chapters/:chapterId/actions', (req: Request
   if (!enabled(res)) return;
   try { return res.json({ success: true, data: getChapterActions(req.query.ownerId, req.params.bookId, req.params.chapterId, db) }); } catch (error) { return fail(error, res); }
 });
+router.get('/assistant/olympiad-materials', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: getOlympiadMaterials(req.query.ownerId, db) }); } catch (error) { return fail(error, res); }
+});
 router.post('/learning-tasks', async (req: Request, res: Response) => {
   if (!enabled(res)) return;
   try {
     const task = req.body?.taskType === 'wrong_review'
       ? await createWrongReviewTask(req.body || {})
+      : req.body?.source?.kind === 'olympiad'
+        ? await createOlympiadAssessmentTask(req.body || {})
       : await createTextbookTask(req.body || {});
     const detail = getClassroomTask(db, task.id, req.body?.ownerId);
     if (!detail) throw new Error('学习任务创建后无法读取');

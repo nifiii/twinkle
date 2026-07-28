@@ -1,22 +1,17 @@
 export type WrongProblemRef = { source: 'scanned_item'; scannedItemId: string; problemIndex: number } | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
 
-export type TextbookTaskAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'video' | 'math_thinking' | 'assessment';
-
-export interface VideoResourceOption {
-  id: string;
-  title: string;
-  durationSeconds: number;
-  ageLabel: string;
-  embedUrl: string;
-}
+export type TextbookTaskAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'math_thinking' | 'assessment';
 
 export interface ChapterAction {
   action: TextbookTaskAction;
   available: boolean;
   reasonCode?: string;
-  resourceOptions?: VideoResourceOption[];
-  examModes?: Array<'textbook' | 'olympiad'>;
-  olympiadMaterials?: Array<{ id: string; title: string }>;
+}
+
+export interface OlympiadMaterialOption {
+  id: string;
+  title: string;
+  grade: string;
 }
 
 export type WrongProblemCandidate = WrongProblemRef & {
@@ -59,6 +54,10 @@ export function fetchChapterActions(input: { ownerId: string; bookId: string; ch
   return request<ChapterAction[]>(`/api/assistant/books/${encodeURIComponent(input.bookId)}/chapters/${encodeURIComponent(input.chapterId)}/actions?${query}`);
 }
 
+export function fetchOlympiadMaterials(ownerId: string): Promise<OlympiadMaterialOption[]> {
+  return request<OlympiadMaterialOption[]>(`/api/assistant/olympiad-materials?${new URLSearchParams({ ownerId })}`);
+}
+
 export function createTextbookTask(input: {
   ownerId: string;
   userName: string;
@@ -80,6 +79,30 @@ export function createTextbookTask(input: {
         bookId: input.bookId,
         chapterIds: [input.chapterId],
         options: input.options,
+      },
+    }),
+  });
+}
+
+export function createOlympiadAssessmentTask(input: {
+  ownerId: string;
+  userName: string;
+  olympiadBookId: string;
+  examType: string;
+  difficulty: string;
+}) {
+  return request<{ id: string; title: string; generationStatus: string }>('/api/learning-tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ownerId: input.ownerId,
+      userName: input.userName,
+      requestKey: crypto.randomUUID(),
+      taskType: 'assessment',
+      source: {
+        kind: 'olympiad',
+        olympiadBookId: input.olympiadBookId,
+        options: { examType: input.examType, difficulty: input.difficulty },
       },
     }),
   });
