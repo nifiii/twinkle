@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { getLearningTask, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks } from './learningTaskService.js';
+import { getLearningTask, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks, WrongProblemRef } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 const PRIMARY_LINK_ORDER = ['primary', 'explanation', 'practice', 'resource', 'paper'];
@@ -51,7 +51,7 @@ export interface ClassroomTaskDetail extends ClassroomTaskSummary {
     sourceType: 'chapter' | 'wrong_problems' | 'legacy';
     bookId?: string;
     chapterIds?: string[];
-    wrongProblemRefs?: Array<{ scannedItemId: string; problemIndex: number }>;
+    wrongProblemRefs?: WrongProblemRef[];
   };
   links: TaskLink[];
   events: TaskEvent[];

@@ -18,6 +18,8 @@ test('learning task API returns a paged index and stable context and missing-tar
   db.prepare(`INSERT INTO classroom_items (id, type, bookTitle, chapter, subject, ownerId, contentJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
     'legacy-courseware', 'courseware', '四年级数学', '第一单元', '数学', 'child_1', '[]', 1000,
   );
+  db.prepare(`INSERT INTO scanned_items (id, type, subject, ownerId, problemsJson, timestamp) VALUES (?, 'wrong_problem', '数学', 'child_1', ?, ?)`)
+    .run('scan-candidate', JSON.stringify([{ content: '36 除以 6 等于多少？', answer: '6', knowledgePoints: ['除法'] }]), 1100);
   const app = express();
   app.use(express.json());
   app.use('/api', router);
@@ -34,6 +36,11 @@ test('learning task API returns a paged index and stable context and missing-tar
     assert.equal(listBody.success, true);
     assert.equal(listBody.data.items[0].id, 'legacy:classroom_courseware:legacy-courseware');
     assert.equal(listBody.data.items[0].source, 'legacy');
+
+    const candidates = await fetch(`${baseUrl.replace('/learning-tasks', '/assistant/wrong-problems')}?ownerId=child_1&subject=数学`);
+    const candidatesBody = await candidates.json() as { success: boolean; data: Array<{ source: string; scannedItemId?: string }> };
+    assert.equal(candidates.status, 200);
+    assert.deepEqual(candidatesBody.data, [{ source: 'scanned_item', scannedItemId: 'scan-candidate', problemIndex: 0, subject: '数学', title: '数学错题', contentExcerpt: '36 除以 6 等于多少？', knowledgePoints: ['除法'], createdAt: 1100 }]);
 
     const missingContext = await fetch(baseUrl);
     assert.equal(missingContext.status, 400);

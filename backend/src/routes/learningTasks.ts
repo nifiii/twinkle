@@ -3,6 +3,7 @@ import db from '../services/databaseService.js';
 import { LearningOwnerContextError, readLearningFeatureFlags } from '../services/learningDomain.js';
 import { LearningTaskValidationError, retryLearningTask } from '../services/learningTaskService.js';
 import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLegacyTaskReference } from '../services/classroomTaskQueryService.js';
+import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -15,6 +16,10 @@ const fail = (error: unknown, res: Response) => {
   if (error instanceof LearningTaskValidationError) return res.status(400).json({ success: false, errorCode: 'invalid_source', field: error.field, error: error.message });
   console.error('[learning-tasks]', error);
   return res.status(500).json({ success: false, errorCode: 'generation_failed', error: '学习任务读取失败，请稍后重试' });
+};
+const taskSummary = (task: NonNullable<ReturnType<typeof getClassroomTask>>) => {
+  const { sourceSnapshot, links, events, errorCode, errorMessage, ...summary } = task;
+  return summary;
 };
 
 router.get('/learning-tasks', (req: Request, res: Response) => {
@@ -32,6 +37,24 @@ router.get('/learning-tasks', (req: Request, res: Response) => {
       cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
       limit,
     }) });
+  } catch (error) { return fail(error, res); }
+});
+router.get('/assistant/wrong-problems', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try {
+    return res.json({ success: true, data: listWrongProblemCandidates(req.query.ownerId, req.query.subject, db) });
+  } catch (error) { return fail(error, res); }
+});
+router.post('/learning-tasks', async (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try {
+    if (req.body?.taskType !== 'wrong_review') {
+      return res.status(400).json({ success: false, errorCode: 'capability_unavailable', error: '该学习任务类型将在后续版本开放' });
+    }
+    const task = await createWrongReviewTask(req.body || {});
+    const detail = getClassroomTask(db, task.id, req.body?.ownerId);
+    if (!detail) throw new Error('学习任务创建后无法读取');
+    return res.status(task.generationStatus === 'ready' ? 201 : 200).json({ success: true, data: taskSummary(detail) });
   } catch (error) { return fail(error, res); }
 });
 router.get('/learning-tasks/:id', (req: Request, res: Response) => {
@@ -53,6 +76,11 @@ router.get('/learning-tasks/:id', (req: Request, res: Response) => {
 });
 router.post('/learning-tasks/:id/retry', (req: Request, res: Response) => {
   if (!enabled(res)) return;
-  try { return res.json({ success: true, data: retryLearningTask(db, req.params.id, req.body?.ownerId) }); } catch (error) { return fail(error, res); }
+  try {
+    const task = retryLearningTask(db, req.params.id, req.body?.ownerId);
+    const detail = getClassroomTask(db, task.id, req.body?.ownerId);
+    if (!detail) throw new Error('学习任务重试后无法读取');
+    return res.json({ success: true, data: taskSummary(detail) });
+  } catch (error) { return fail(error, res); }
 });
 export default router;

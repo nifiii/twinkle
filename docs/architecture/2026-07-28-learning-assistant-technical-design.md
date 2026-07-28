@@ -51,7 +51,7 @@
 | `sourceType` | `chapter` 或 `wrong_problems`。 |
 | `subject`、`grade` | 创建时快照，供快速筛选。 |
 | `bookId`、`chapterIdsJson` | 教材流锚点；错题流为空。 |
-| `wrongProblemRefsJson` | 错题流中的不可变来源引用数组 `{ scannedItemId, problemIndex }`；教材流为空。 |
+| `wrongProblemRefsJson` | 错题流中的不可变来源引用数组。错题本引用为 `{ source: "scanned_item", scannedItemId, problemIndex }`；课堂作答错题引用为 `{ source: "quiz_result", quizResultId, problemIndex }`；教材流为空。 |
 | `title` | 创建时可读标题，避免列表读取内容正文。 |
 | `generationStatus` | `queued`、`running`、`ready`、`failed`、`resource_unavailable`。 |
 | `learningStatus` | `not_started`、`in_progress`、`completed`；由原实体进度更新或查询时计算。 |
@@ -103,13 +103,13 @@
 | --- | --- | --- | --- |
 | `courseware` | 可见教材、具体章节 | 现有 courseware job 与 `classroom_items` | `primary` |
 | `classroom_quiz` | 可见教材、具体章节 | 现有 `QuizGenerator`/`classroom_items` | `primary` |
-| `wrong_review` | 1-10 个当前 `ownerId` 的错题引用 | 新聚合适配器，产出一份错题讲解课件与一份测验；复用 `classroom_items` 与每题 `wrong_problem_quiz_links` | `explanation`、`practice` |
+| `wrong_review` | 1-10 个当前 `ownerId` 的错题本或课堂作答错题引用，且学科一致 | 新聚合适配器，产出一份错题讲解课件与一份测验；复用 `classroom_items`。仅错题本来源写入每题 `wrong_problem_quiz_links`，课堂作答来源只保存于任务快照 | `explanation`、`practice` |
 | `english_listening` | 英语教材、具体章节、启用 packages | 现有 `learning_packages`、TTS 与两次播放规则 | `primary` |
 | `video` | 指定学科教材、具体章节、合格 `external_resource` | 学习包进度或轻量视频任务适配器；只保存审核过的 embed URL | `resource`，可选 `primary` |
 | `math_thinking` | 数学教材、具体章节 | 现有 `learning_packages` | `primary` |
 | `assessment` | 教材、章节、类型、难度；奥数时校验资料年级 | 现有蓝图、`assessment_papers`、attempt、export、diagnosis 服务 | `paper` |
 
-错题聚合的关键约束：一份任务中的全部选题必须属于选定学科；服务从原错题中提取知识点并生成一份聚合讲解和一份原创测验。每个来源题建立一条 `wrong_problem_quiz_links`，以保持既有待订正统计语义；不把多题任务伪装成多条独立任务。
+错题聚合的关键约束：一份任务中的全部选题必须属于选定学科；服务从两类原始错题中提取知识点并生成一份聚合讲解和一份原创测验。仅 `scanned_item` 来源建立 `wrong_problem_quiz_links`，以保持既有待订正统计语义；`quiz_result` 来源绝不伪造错题本链接。不把多题任务伪装成多条独立任务。
 
 ### 3.5 HTTP 契约
 
@@ -145,7 +145,7 @@
 
 `GET /assistant/wrong-problems?ownerId=<id>&subject=<subject>`
 
-返回可选错题 `{ scannedItemId, problemIndex, subject, title, contentExcerpt, knowledgePoints, source, createdAt }`。只读；学科切换和排除仅为客户端选择状态。
+返回可选错题 `{ source, scannedItemId?|quizResultId?, problemIndex, subject, title, contentExcerpt, knowledgePoints, createdAt }`。`source` 为 `scanned_item` 或 `quiz_result`；只读。学科切换和排除仅为客户端选择状态。
 
 `GET /assistant/books/:bookId/chapters/:chapterId/actions?ownerId=<id>`
 
@@ -165,7 +165,8 @@
   "source": {
     "kind": "wrong_problems",
     "subject": "数学",
-    "problems": [{ "scannedItemId": "item-1", "problemIndex": 2 }]
+    "grade": "四年级",
+    "problems": [{ "source": "scanned_item", "scannedItemId": "item-1", "problemIndex": 2 }]
   }
 }
 ```

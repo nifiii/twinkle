@@ -30,6 +30,9 @@ export type LearningTaskType = typeof LEARNING_TASK_TYPES[number];
 export type LearningTaskGenerationStatus = typeof LEARNING_TASK_GENERATION_STATUSES[number];
 export type LearningTaskLearningStatus = typeof LEARNING_TASK_LEARNING_STATUSES[number];
 export type LearningTaskSourceType = 'chapter' | 'wrong_problems';
+export type WrongProblemRef =
+  | { source: 'scanned_item'; scannedItemId: string; problemIndex: number }
+  | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
 
 export interface LearningTaskRecord {
   id: string;
@@ -41,7 +44,7 @@ export interface LearningTaskRecord {
   grade: string;
   bookId: string | null;
   chapterIds: string[];
-  wrongProblemRefs: Array<{ scannedItemId: string; problemIndex: number }>;
+  wrongProblemRefs: WrongProblemRef[];
   title: string;
   generationStatus: LearningTaskGenerationStatus;
   learningStatus: LearningTaskLearningStatus;
@@ -126,19 +129,39 @@ function parseStringArray(value: unknown, field: string): string[] {
   return [...new Set(value.map(item => item.trim()))];
 }
 
-function parseWrongProblemRefs(value: unknown): Array<{ scannedItemId: string; problemIndex: number }> {
+function parseWrongProblemRefs(value: unknown): WrongProblemRef[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new LearningTaskValidationError('wrongProblemRefs', '错题引用格式不正确');
-  const refs = value.map((item): { scannedItemId: string; problemIndex: number } => {
+  const refs = value.map((item): WrongProblemRef => {
     if (!item || typeof item !== 'object') throw new LearningTaskValidationError('wrongProblemRefs', '错题引用格式不正确');
-    const source = item as { scannedItemId?: unknown; problemIndex?: unknown };
-    const scannedItemId = requireText(source.scannedItemId, 'wrongProblemRefs', '错题来源');
+    const source = item as { source?: unknown; scannedItemId?: unknown; quizResultId?: unknown; problemIndex?: unknown };
     if (!Number.isInteger(source.problemIndex) || (source.problemIndex as number) < 0) {
       throw new LearningTaskValidationError('wrongProblemRefs', '错题序号不正确');
     }
-    return { scannedItemId, problemIndex: source.problemIndex as number };
+    // Existing T-001 records did not need a source discriminator. Treat that
+    // persisted shape as a scanned-item reference so old tasks remain readable.
+    if (source.source === undefined || source.source === 'scanned_item') {
+      return {
+        source: 'scanned_item',
+        scannedItemId: requireText(source.scannedItemId, 'wrongProblemRefs', '错题本来源'),
+        problemIndex: source.problemIndex as number,
+      };
+    }
+    if (source.source === 'quiz_result') {
+      return {
+        source: 'quiz_result',
+        quizResultId: requireText(source.quizResultId, 'wrongProblemRefs', '课堂作答来源'),
+        problemIndex: source.problemIndex as number,
+      };
+    }
+    throw new LearningTaskValidationError('wrongProblemRefs', '错题来源类型不支持');
   });
-  const unique = new Map(refs.map(ref => [`${ref.scannedItemId}:${ref.problemIndex}`, ref]));
+  const unique = new Map(refs.map(ref => [
+    ref.source === 'scanned_item'
+      ? `${ref.source}:${ref.scannedItemId}:${ref.problemIndex}`
+      : `${ref.source}:${ref.quizResultId}:${ref.problemIndex}`,
+    ref,
+  ]));
   return [...unique.values()];
 }
 
@@ -154,7 +177,7 @@ function toRecord(row: LearningTaskRow): LearningTaskRecord {
   return {
     ...row,
     chapterIds: parseJson<string[]>(row.chapterIdsJson, []),
-    wrongProblemRefs: parseJson<Array<{ scannedItemId: string; problemIndex: number }>>(row.wrongProblemRefsJson, []),
+    wrongProblemRefs: parseWrongProblemRefs(parseJson<unknown[]>(row.wrongProblemRefsJson, [])),
   };
 }
 
