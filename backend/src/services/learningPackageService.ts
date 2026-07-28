@@ -56,7 +56,7 @@ interface ExternalResourceRow {
   sourceName: string;
   durationSeconds: number | null;
   ageLabel: string | null;
-  url: string;
+  embedUrl: string | null;
 }
 
 export class LearningPackageValidationError extends Error {
@@ -194,27 +194,29 @@ function isHealthyPublicUrl(value: string): boolean {
 
 function getHealthyResources(database: Database.Database, book: BookRow): Array<Record<string, unknown>> {
   const rows = database.prepare(`
-    SELECT id, title, sourceName, durationSeconds, ageLabel, url
+    SELECT id, title, sourceName, durationSeconds, ageLabel, embedUrl
     FROM external_resources
     WHERE subject = ?
       AND grade = ?
       AND status = 'approved'
       AND reviewedAt IS NOT NULL
       AND linkHealthStatus = 'healthy'
+      AND embedStatus = 'allowed'
   `).all(normalizeSubject(book.subject), book.grade || '') as ExternalResourceRow[];
 
   return rows
     .filter(resource => Boolean(resource.title?.trim())
       && typeof resource.durationSeconds === 'number' && resource.durationSeconds > 0
       && Boolean(resource.ageLabel?.trim())
-      && isHealthyPublicUrl(resource.url))
+      && Boolean(resource.embedUrl?.trim())
+      && isHealthyPublicUrl(resource.embedUrl!))
     .map(resource => ({
       id: resource.id,
       title: resource.title,
       sourceName: resource.sourceName,
       durationSeconds: resource.durationSeconds,
       ageLabel: resource.ageLabel,
-      url: resource.url,
+      embedUrl: resource.embedUrl,
     }));
 }
 
