@@ -34,7 +34,7 @@ interface ClassroomListItem {
   createdAt: number;
 }
 
-interface LessonSection {
+export interface LessonSection {
   index: number;
   title: string;
   content: string;
@@ -84,7 +84,7 @@ const SUBJECTS = ['语文', '数学', '英语', '科学', '物理', '化学', '�
 const TYPE_LABELS: Record<string, string> = { choice: '选择题', fill: '填空题', essay: '解答题' };
 
 // ——— 文章 section 卡片 ———
-const SectionCard: React.FC<{ section: LessonSection; isLast: boolean }> = ({ section, isLast }) => {
+export const SectionCard: React.FC<{ section: LessonSection; isLast: boolean }> = ({ section, isLast }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const isSummary = isLast && (section.title.includes('小结') || section.title.includes('总结'));
 
@@ -162,7 +162,7 @@ const splitIntoChunks = (text: string, maxLen = 280): string[] => {
 };
 
 // 课件全文连播控制条
-const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: string }> = ({ sections, coursewareId }) => {
+export const CoursewareNarrator: React.FC<{ sections: LessonSection[]; coursewareId: string }> = ({ sections, coursewareId }) => {
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [chunkIdx, setChunkIdx] = useState(0);

@@ -31,6 +31,24 @@ test('reports chapter actions by subject, resource health, and olympiad grade el
   assert.equal(getChapterActions('child_1', 'chinese-book', 'chapter-1', database).find(action => action.action === 'video')?.available, false);
 });
 
+test('accepts numeric chapter IDs after browser route parameters convert them to strings', async () => {
+  const database = createDatabase();
+  database.prepare(`UPDATE books SET tableOfContents = ? WHERE id = 'chinese-book'`).run(JSON.stringify([{ id: 1, title: '第一单元' }]));
+
+  assert.equal(getChapterActions('child_1', 'chinese-book', '1', database).some(action => action.action === 'courseware'), true);
+  const task = await createTextbookTask({
+    ownerId: 'child_1', requestKey: 'numeric-chapter-id', taskType: 'courseware', userName: '大宝',
+    source: { kind: 'chapter', bookId: 'chinese-book', chapterIds: ['1'] },
+  }, {
+    database,
+    readMarkdown: async () => '# 第一单元\n这是足够用于测试的教材章节正文。'.repeat(10),
+    generate: async () => ({ slides: [{ title: '第一单元重点', content: '归纳本单元内容。', notes: '复习。' }] }),
+  });
+
+  assert.equal(task.generationStatus, 'ready');
+  assert.deepEqual(getLearningTask(database, task.id, 'child_1')?.chapterIds, ['1']);
+});
+
 test('creates an Olympiad assessment only from a matching material reference', async () => {
   const database = createDatabase();
   database.prepare(`INSERT INTO books (id, title, subject, grade, ownerId, status, mdPath, tableOfContents, category) VALUES ('olympiad-4', '希望杯资料', '数学', '四年级', 'child_1', 'completed', '/tmp/olympiad.md', '[]', '奥数')`).run();

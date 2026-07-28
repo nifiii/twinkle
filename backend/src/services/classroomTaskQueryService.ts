@@ -8,6 +8,7 @@ const LEGACY_ENTITY_TYPES = [
   'classroom_quiz',
   'learning_package',
   'assessment_paper',
+  'quiz_result',
 ] as const;
 
 type LegacyEntityType = typeof LEGACY_ENTITY_TYPES[number];
@@ -92,12 +93,12 @@ function parseJson<T>(value: string | null, fallback: T): T {
 
 function chapterTitles(book: BookRow | null, chapterIds: string[]): string[] {
   if (!book) return [];
-  const nodes = parseJson<Array<{ id?: string; title?: string; children?: unknown }>>(book.tableOfContents, []);
+  const nodes = parseJson<Array<{ id?: string | number; title?: string; children?: unknown }>>(book.tableOfContents, []);
   const found = new Map<string, string>();
-  const visit = (items: Array<{ id?: string; title?: string; children?: unknown }>) => {
+  const visit = (items: Array<{ id?: string | number; title?: string; children?: unknown }>) => {
     for (const item of items) {
-      if (typeof item.id === 'string' && typeof item.title === 'string') found.set(item.id, item.title);
-      if (Array.isArray(item.children)) visit(item.children as Array<{ id?: string; title?: string; children?: unknown }>);
+      if ((typeof item.id === 'string' || typeof item.id === 'number') && typeof item.title === 'string') found.set(String(item.id), item.title);
+      if (Array.isArray(item.children)) visit(item.children as Array<{ id?: string | number; title?: string; children?: unknown }>);
     }
   };
   visit(nodes);
@@ -163,6 +164,10 @@ function packageTaskType(kind: string): string {
   return 'courseware';
 }
 
+function hasTable(database: Database.Database, name: string): boolean {
+  return Boolean(database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name));
+}
+
 function legacySummaries(database: Database.Database, ownerId: string): ClassroomTaskSummary[] {
   const classroom = database.prepare(`
     SELECT id, type, bookTitle, chapter, subject, createdAt
@@ -189,6 +194,15 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
     id: string; status: string; createdAt: number; bookId: string; bookTitle: string | null;
     subject: string | null; grade: string | null; tableOfContents: string | null; chapterIdsJson: string;
   }>;
+  const quizResults = hasTable(database, 'quiz_results')
+    ? database.prepare(`
+      SELECT id, quizId, bookTitle, chapter, subject, correctCount, total, percentage, status, createdAt
+      FROM quiz_results WHERE ownerId = ?
+    `).all(ownerId) as Array<{
+      id: string; quizId: string; bookTitle: string; chapter: string; subject: string;
+      correctCount: number; total: number; percentage: number; status: string; createdAt: number;
+    }>
+    : [];
 
   return [
     ...classroom.map(item => ({
@@ -246,6 +260,21 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         primaryLink: { entityType: 'assessment_paper', entityId: item.id, role: 'paper' as const, createdAt: item.createdAt },
       };
     }),
+    ...quizResults.map(item => ({
+      id: `legacy:quiz_result:${item.id}`,
+      source: 'legacy' as const,
+      taskType: 'quiz_result',
+      title: `${item.bookTitle || '课堂测验'}·${item.chapter || '测验记录'}`,
+      subject: item.subject || '',
+      grade: null,
+      book: null,
+      chapterTitles: item.chapter ? [item.chapter] : [],
+      generationStatus: item.status === 'completed' ? 'ready' : item.status,
+      learningStatus: 'completed',
+      createdAt: item.createdAt,
+      updatedAt: item.createdAt,
+      primaryLink: { entityType: 'quiz_result', entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
+    })),
   ];
 }
 
@@ -290,7 +319,7 @@ export function listClassroomTasks(database: Database.Database, ownerId: unknown
 }
 
 export function parseLegacyTaskReference(taskId: string): { entityType: LegacyEntityType; entityId: string } | null {
-  const match = /^legacy:(classroom_courseware|classroom_quiz|learning_package|assessment_paper):(.+)$/.exec(taskId);
+  const match = /^legacy:(classroom_courseware|classroom_quiz|learning_package|assessment_paper|quiz_result):(.+)$/.exec(taskId);
   return match && LEGACY_ENTITY_TYPES.includes(match[1] as LegacyEntityType)
     ? { entityType: match[1] as LegacyEntityType, entityId: match[2] }
     : null;
@@ -319,6 +348,7 @@ export function learningTaskTargetExists(database: Database.Database, ownerId: u
     classroom_quiz: { table: 'classroom_items', type: 'quiz' },
     learning_package: { table: 'learning_packages' },
     assessment_paper: { table: 'assessment_papers' },
+    quiz_result: { table: 'quiz_results' },
     external_resource: { table: 'external_resources' },
   };
   const target = tableByEntityType[link.entityType];
