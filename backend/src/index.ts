@@ -21,6 +21,7 @@ import learningPackagesRouter from './routes/learningPackages.js';
 import assessmentPapersRouter from './routes/assessmentPapers.js';
 import paperAttemptsRouter from './routes/paperAttempts.js';
 import exportsRouter from './routes/exports.js';
+import learningTasksRouter from './routes/learningTasks.js';
 import { cleanupTempChunks } from './utils/cleanup.js';
 import { initDatabase } from './services/databaseService.js';
 import { startJobScheduler } from './services/jobRuntime.js';
@@ -95,6 +96,7 @@ app.use('/api', learningPackagesRouter);
 app.use('/api', assessmentPapersRouter);
 app.use('/api', paperAttemptsRouter);
 app.use('/api', exportsRouter);
+app.use('/api', learningTasksRouter);
 
 // API 404 处理（仅 /api/* 未匹配时返回 JSON）
 app.use('/api', (req, res) => {

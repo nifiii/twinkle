@@ -6,6 +6,7 @@ export const LEARNING_FEATURES = [
   'attempts',
   'grading',
   'exports',
+  'tasks',
 ] as const;
 
 export type LearningFeature = typeof LEARNING_FEATURES[number];
@@ -17,6 +18,7 @@ const FEATURE_ENV_NAMES: Record<LearningFeature, string> = {
   attempts: 'LEARNING_ATTEMPTS_ENABLED',
   grading: 'LEARNING_GRADING_ENABLED',
   exports: 'LEARNING_EXPORTS_ENABLED',
+  tasks: 'LEARNING_TASKS_ENABLED',
 };
 
 export class LearningOwnerContextError extends Error {
@@ -66,6 +68,54 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_learning_packages_owner_book
       ON learning_packages(ownerId, bookId, createdAt DESC);
 
+    CREATE TABLE IF NOT EXISTS learning_tasks (
+      id TEXT PRIMARY KEY,
+      ownerId TEXT NOT NULL,
+      requestKey TEXT NOT NULL,
+      taskType TEXT NOT NULL,
+      sourceType TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      grade TEXT NOT NULL,
+      bookId TEXT,
+      chapterIdsJson TEXT NOT NULL,
+      wrongProblemRefsJson TEXT NOT NULL,
+      title TEXT NOT NULL,
+      generationStatus TEXT NOT NULL,
+      learningStatus TEXT NOT NULL,
+      errorCode TEXT,
+      errorMessage TEXT,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      UNIQUE(ownerId, requestKey)
+    );
+    CREATE INDEX IF NOT EXISTS idx_learning_tasks_owner_created
+      ON learning_tasks(ownerId, createdAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_tasks_owner_generation
+      ON learning_tasks(ownerId, generationStatus, updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_tasks_owner_subject_type
+      ON learning_tasks(ownerId, subject, taskType, createdAt DESC);
+
+    CREATE TABLE IF NOT EXISTS learning_task_links (
+      taskId TEXT NOT NULL,
+      entityType TEXT NOT NULL,
+      entityId TEXT NOT NULL,
+      role TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (taskId, entityType, entityId, role)
+    );
+    CREATE INDEX IF NOT EXISTS idx_learning_task_links_task
+      ON learning_task_links(taskId, createdAt ASC);
+
+    CREATE TABLE IF NOT EXISTS learning_task_events (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      eventType TEXT NOT NULL,
+      detailJson TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_learning_task_events_task
+      ON learning_task_events(taskId, createdAt ASC);
+
     CREATE TABLE IF NOT EXISTS learning_package_progress (
       ownerId TEXT NOT NULL,
       packageId TEXT NOT NULL,
@@ -89,6 +139,9 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       status TEXT NOT NULL,
       linkHealthStatus TEXT NOT NULL DEFAULT 'unknown',
       lastHealthCheckedAt INTEGER,
+      embedStatus TEXT NOT NULL DEFAULT 'unknown',
+      embedUrl TEXT,
+      lastEmbedCheckedAt INTEGER,
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL
     );
@@ -115,6 +168,8 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       bookId TEXT NOT NULL,
       chapterIdsJson TEXT NOT NULL,
       examType TEXT NOT NULL,
+      examMode TEXT NOT NULL DEFAULT 'textbook',
+      olympiadBookId TEXT,
       difficulty TEXT NOT NULL,
       sectionsJson TEXT NOT NULL,
       styleProfileId TEXT,
@@ -206,10 +261,25 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     ['ageLabel', 'TEXT'],
     ['linkHealthStatus', "TEXT NOT NULL DEFAULT 'unknown'"],
     ['lastHealthCheckedAt', 'INTEGER'],
+    ['embedStatus', "TEXT NOT NULL DEFAULT 'unknown'"],
+    ['embedUrl', 'TEXT'],
+    ['lastEmbedCheckedAt', 'INTEGER'],
   ] as const;
   for (const [name, definition] of additions) {
     if (!existingColumns.has(name)) {
       db.exec(`ALTER TABLE external_resources ADD COLUMN ${name} ${definition}`);
+    }
+  }
+
+  const blueprintColumns = db.prepare('PRAGMA table_info(assessment_blueprints)').all() as Array<{ name: string }>;
+  const existingBlueprintColumns = new Set(blueprintColumns.map(column => column.name));
+  const blueprintAdditions = [
+    ['examMode', "TEXT NOT NULL DEFAULT 'textbook'"],
+    ['olympiadBookId', 'TEXT'],
+  ] as const;
+  for (const [name, definition] of blueprintAdditions) {
+    if (!existingBlueprintColumns.has(name)) {
+      db.exec(`ALTER TABLE assessment_blueprints ADD COLUMN ${name} ${definition}`);
     }
   }
 }

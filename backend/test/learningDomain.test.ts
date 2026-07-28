@@ -18,7 +18,8 @@ test('creates the independent learning-domain schema idempotently', () => {
     WHERE type = 'table' AND name IN (
       'learning_packages', 'external_resources', 'style_profiles',
       'assessment_blueprints', 'assessment_papers', 'paper_attempts',
-      'attempt_item_results', 'review_events', 'export_jobs'
+      'attempt_item_results', 'review_events', 'export_jobs',
+      'learning_tasks', 'learning_task_links', 'learning_task_events'
     )
     ORDER BY name
   `).all() as Array<{ name: string }>;
@@ -30,6 +31,9 @@ test('creates the independent learning-domain schema idempotently', () => {
     'export_jobs',
     'external_resources',
     'learning_packages',
+    'learning_task_events',
+    'learning_task_links',
+    'learning_tasks',
     'paper_attempts',
     'review_events',
     'style_profiles',
@@ -37,7 +41,7 @@ test('creates the independent learning-domain schema idempotently', () => {
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_paper_attempts_owner_paper'").get());
   const resourceColumns = db.prepare('PRAGMA table_info(external_resources)').all() as Array<{ name: string }>;
   assert.deepEqual(
-    ['title', 'durationSeconds', 'ageLabel', 'linkHealthStatus', 'lastHealthCheckedAt']
+    ['title', 'durationSeconds', 'ageLabel', 'linkHealthStatus', 'lastHealthCheckedAt', 'embedStatus', 'embedUrl', 'lastEmbedCheckedAt']
       .every(name => resourceColumns.some(column => column.name === name)),
     true,
   );
@@ -74,6 +78,8 @@ test('upgrades existing external resources without treating them as verified', (
   assert.equal(row.linkHealthStatus, 'unknown');
   const columns = db.prepare('PRAGMA table_info(external_resources)').all() as Array<{ name: string }>;
   assert.ok(columns.some(column => column.name === 'lastHealthCheckedAt'));
+  assert.ok(columns.some(column => column.name === 'embedStatus'));
+  assert.ok(columns.some(column => column.name === 'embedUrl'));
 });
 
 test('accepts ownerId only as a bounded local learning context', () => {
@@ -90,6 +96,7 @@ test('keeps every learning capability disabled unless explicitly enabled', () =>
     attempts: false,
     grading: false,
     exports: false,
+    tasks: false,
   });
   assert.deepEqual(readLearningFeatureFlags({
     LEARNING_PACKAGES_ENABLED: 'true',
@@ -100,5 +107,6 @@ test('keeps every learning capability disabled unless explicitly enabled', () =>
     attempts: false,
     grading: false,
     exports: true,
+    tasks: false,
   });
 });

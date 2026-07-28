@@ -115,14 +115,15 @@ test('returns only reviewed, healthy and complete public video metadata', async 
   const insert = database.prepare(`
     INSERT INTO external_resources (
       id, title, subject, grade, knowledgeTagsJson, url, sourceName,
-      durationSeconds, ageLabel, reviewedAt, status, linkHealthStatus, lastHealthCheckedAt, createdAt, updatedAt
-    ) VALUES (?, ?, '科学', '小学四年级上册', '[]', ?, '公开来源', ?, ?, ?, 'approved', ?, ?, ?, ?)
+      durationSeconds, ageLabel, reviewedAt, status, linkHealthStatus, lastHealthCheckedAt,
+      embedStatus, embedUrl, lastEmbedCheckedAt, createdAt, updatedAt
+    ) VALUES (?, ?, '科学', '小学四年级上册', '[]', ?, '公开来源', ?, ?, ?, 'approved', ?, ?, 'allowed', ?, ?, ?, ?)
   `);
   const now = Date.now();
-  insert.run('healthy', '声音的产生', 'https://video.example.test/sound', 180, '适合 9-11 岁', now, 'healthy', now, now, now);
-  insert.run('unhealthy', '失效视频', 'https://video.example.test/old', 180, '适合 9-11 岁', now, 'unhealthy', now, now, now);
-  insert.run('unreviewed', '未审核视频', 'https://video.example.test/new', 180, '适合 9-11 岁', null, 'healthy', now, now, now);
-  insert.run('incomplete', null, 'https://video.example.test/no-title', 180, '适合 9-11 岁', now, 'healthy', now, now, now);
+  insert.run('healthy', '声音的产生', 'https://video.example.test/sound', 180, '适合 9-11 岁', now, 'healthy', now, 'https://embed.example.test/sound', now, now, now);
+  insert.run('unhealthy', '失效视频', 'https://video.example.test/old', 180, '适合 9-11 岁', now, 'unhealthy', now, 'https://embed.example.test/old', now, now, now);
+  insert.run('unreviewed', '未审核视频', 'https://video.example.test/new', 180, '适合 9-11 岁', null, 'healthy', now, 'https://embed.example.test/new', now, now, now);
+  insert.run('incomplete', null, 'https://video.example.test/no-title', 180, '适合 9-11 岁', now, 'healthy', now, 'https://embed.example.test/no-title', now, now, now);
 
   const result = await createLearningPackage({
     ownerId: 'child_1', bookId: 'science-book', chapterIds: ['sound'], kind: 'science-video',
@@ -130,8 +131,51 @@ test('returns only reviewed, healthy and complete public video metadata', async 
   const resources = (result.content as Record<string, any>).resources;
   assert.deepEqual(resources, [{
     id: 'healthy', title: '声音的产生', sourceName: '公开来源', durationSeconds: 180,
-    ageLabel: '适合 9-11 岁', url: 'https://video.example.test/sound',
+    ageLabel: '适合 9-11 岁', embedUrl: 'https://embed.example.test/sound',
   }]);
+});
+
+test('supports math and Chinese video packages with the same reviewed resource contract', async () => {
+  const database = createDatabase();
+  const now = Date.now();
+  const insertResource = database.prepare(`
+    INSERT INTO external_resources (
+      id, title, subject, grade, knowledgeTagsJson, url, sourceName,
+      durationSeconds, ageLabel, reviewedAt, status, linkHealthStatus, lastHealthCheckedAt,
+      embedStatus, embedUrl, lastEmbedCheckedAt, createdAt, updatedAt
+    ) VALUES (?, ?, ?, '小学四年级上册', '[]', ?, '公开来源', 120, '适合 9-11 岁', ?, 'approved', 'healthy', ?, 'allowed', ?, ?, ?, ?)
+  `);
+  addBook(database, { id: 'math-book', subject: '数学', toc: [{ id: 'number', title: '数感' }] });
+  addBook(database, { id: 'chinese-book', subject: '语文', toc: [{ id: 'lesson-1', title: '第一课' }] });
+  insertResource.run('math-video', '数感动画', '数学', 'https://video.example.test/math', now, now, 'https://embed.example.test/math', now, now, now);
+  insertResource.run('chinese-video', '课文朗读', '语文', 'https://video.example.test/chinese', now, now, 'https://embed.example.test/chinese', now, now, now);
+
+  const math = await createLearningPackage({
+    ownerId: 'child_1', bookId: 'math-book', chapterIds: ['number'], kind: 'math-video',
+  }, { database });
+  const chinese = await createLearningPackage({
+    ownerId: 'child_1', bookId: 'chinese-book', chapterIds: ['lesson-1'], kind: 'chinese-video',
+  }, { database });
+
+  assert.equal((math.content as Record<string, any>).resources[0].embedUrl, 'https://embed.example.test/math');
+  assert.equal((chinese.content as Record<string, any>).resources[0].embedUrl, 'https://embed.example.test/chinese');
+});
+
+test('keeps math thinking as original training instead of video resources', async () => {
+  const database = createDatabase();
+  addBook(database, {
+    id: 'math-thinking-book', subject: '数学', toc: [{ id: 'equation', title: '方程思维' }],
+  });
+
+  const result = await createLearningPackage({
+    ownerId: 'child_1', bookId: 'math-thinking-book', chapterIds: ['equation'], kind: 'math-thinking',
+  }, { database });
+  const content = result.content as Record<string, any>;
+
+  assert.equal(content.original, true);
+  assert.deepEqual(content.chapterTitles, ['方程思维']);
+  assert.deepEqual(content.training.focus, ['数感', '数形结合', '方程思维']);
+  assert.equal('resources' in content, false);
 });
 
 test('rejects math resources for material without a labelled grade', async () => {
@@ -142,7 +186,7 @@ test('rejects math resources for material without a labelled grade', async () =>
 
   await assert.rejects(
     () => createLearningPackage({
-      ownerId: 'child_1', bookId: 'olympiad-book', chapterIds: ['number'], kind: 'math-thinking',
+      ownerId: 'child_1', bookId: 'olympiad-book', chapterIds: ['number'], kind: 'math-video',
     }, { database }),
     (error: unknown) => error instanceof LearningPackageValidationError && error.field === 'grade',
   );

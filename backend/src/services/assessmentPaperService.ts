@@ -8,6 +8,7 @@ import { normalizeSubject } from '../utils/subject.js';
 
 type Difficulty = 'basic' | 'standard' | 'challenge';
 type ExamType = 'unit' | 'midterm' | 'final';
+type ExamMode = 'textbook' | 'olympiad';
 type QuestionType = 'choice' | 'fill' | 'essay';
 
 export class AssessmentPaperValidationError extends Error {
@@ -40,6 +41,11 @@ function parseDifficulty(value: unknown): Difficulty {
 function parseExamType(value: unknown): ExamType {
   if (!['unit', 'midterm', 'final'].includes(String(value))) throw new AssessmentPaperValidationError('examType', '试卷类型仅支持单元、期中或期末');
   return value as ExamType;
+}
+function parseExamMode(value: unknown): ExamMode {
+  if (value === undefined || value === null || value === '') return 'textbook';
+  if (value === 'textbook' || value === 'olympiad') return value;
+  throw new AssessmentPaperValidationError('examMode', '考试模式仅支持教材或奥数');
 }
 function toc(value: string | null): Array<{ id: string; title: string; children?: unknown[] }> { try { const data = JSON.parse(value || '[]'); return Array.isArray(data) ? data : []; } catch { return []; } }
 function flatten(nodes: Array<{ id: string; title: string; children?: unknown[] }>): Array<{ id: string; title: string }> { return nodes.flatMap(node => [node, ...flatten(Array.isArray(node.children) ? node.children as Array<{ id: string; title: string; children?: unknown[] }> : [])]); }
@@ -98,6 +104,24 @@ function styleSummary(database: Database.Database, ownerId: string, styleProfile
   try { return { id: row.id, sourceType: row.sourceType, summary: JSON.parse(row.summaryJson) }; } catch { return null; }
 }
 
+function olympiadStyle(database: Database.Database, ownerId: string, bookId: unknown, grade: string | null) {
+  const id = parseString(bookId, 'olympiadBookId');
+  const row = database.prepare(`
+    SELECT id, title, subject, grade, category, tags
+    FROM books
+    WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')
+  `).get(id, ownerId) as { id: string; title: string; subject: string | null; grade: string | null; category: string | null; tags: string | null } | undefined;
+  if (!row || normalizeSubject(row.subject || '') !== '数学' || row.grade !== grade || !/奥数/.test(`${row.category || ''} ${row.tags || ''}`)) {
+    throw new AssessmentPaperValidationError('olympiadBookId', '奥数资料必须在当前家庭资料范围内且与教材年级匹配');
+  }
+  return {
+    id: row.id,
+    title: row.title.slice(0, 120),
+    category: (row.category || '').slice(0, 120),
+    tags: (row.tags || '').slice(0, 500),
+  };
+}
+
 function originalPaperPrompt(input: Record<string, unknown>) {
   return `你是小学教材命题专家。依据教材知识点生成全新原创试卷，不能复制、改写或输出教材原句，不能复现、引用或声称是真题；风格摘要只用于题型、难度和知识点组织，不得输出任何样本题目全文。
 只输出一个 JSON 对象，不要 Markdown 代码块或额外说明。输出必须是：
@@ -135,17 +159,20 @@ function validatePaper(value: unknown, blueprint: Record<string, unknown>) {
 }
 
 export async function createAssessmentBlueprint(request: Record<string, unknown>, dependencies: AssessmentPaperDependencies = {}) {
-  const database = dependencies.database || db; const ownerId = parseLearningOwnerId(request.ownerId); const book = requireBook(database, request.bookId, ownerId); const chapterIds = parseChapters(request.chapterIds); const difficulty = parseDifficulty(request.difficulty); const examType = parseExamType(request.examType); const chapterTitles = selectedTitles(book, chapterIds); const sections = sectionsFor(difficulty); const profile = styleSummary(database, ownerId, request.styleProfileId); const id = randomUUID(); const now = Date.now();
-  database.prepare(`INSERT INTO assessment_blueprints (id, ownerId, bookId, chapterIdsJson, examType, difficulty, sectionsJson, styleProfileId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, ownerId, book.id, JSON.stringify(chapterIds), examType, difficulty, JSON.stringify(sections), profile?.id || null, now);
-  return { id, ownerId, bookId: book.id, subject: normalizeSubject(book.subject), grade: book.grade, chapterIds, chapterTitles, examType, difficulty, sections, totalScore: sections.reduce((sum, item) => sum + item.score, 0), generationVersion: 1, style: profile ? { id: profile.id, sourceType: profile.sourceType } : null, createdAt: now };
+  const database = dependencies.database || db; const ownerId = parseLearningOwnerId(request.ownerId); const book = requireBook(database, request.bookId, ownerId); const chapterIds = parseChapters(request.chapterIds); const difficulty = parseDifficulty(request.difficulty); const examType = parseExamType(request.examType); const examMode = parseExamMode(request.examMode); const chapterTitles = selectedTitles(book, chapterIds); const sections = sectionsFor(difficulty); const profile = styleSummary(database, ownerId, request.styleProfileId);
+  if (examMode === 'olympiad' && normalizeSubject(book.subject) !== '数学') throw new AssessmentPaperValidationError('examMode', '奥数模拟考试仅支持数学');
+  const olympiad = examMode === 'olympiad' ? olympiadStyle(database, ownerId, request.olympiadBookId, book.grade) : null;
+  const id = randomUUID(); const now = Date.now();
+  database.prepare(`INSERT INTO assessment_blueprints (id, ownerId, bookId, chapterIdsJson, examType, examMode, olympiadBookId, difficulty, sectionsJson, styleProfileId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, ownerId, book.id, JSON.stringify(chapterIds), examType, examMode, olympiad?.id || null, difficulty, JSON.stringify(sections), profile?.id || null, now);
+  return { id, ownerId, bookId: book.id, subject: normalizeSubject(book.subject), grade: book.grade, chapterIds, chapterTitles, examType, examMode, olympiadMaterial: olympiad ? { id: olympiad.id, title: olympiad.title } : null, difficulty, sections, totalScore: sections.reduce((sum, item) => sum + item.score, 0), generationVersion: 1, style: profile ? { id: profile.id, sourceType: profile.sourceType } : null, createdAt: now };
 }
 
 export async function createAssessmentPaper(request: Record<string, unknown>, dependencies: AssessmentPaperDependencies = {}) {
   const database = dependencies.database || db; const ownerId = parseLearningOwnerId(request.ownerId); const blueprintId = parseString(request.blueprintId, 'blueprintId');
-  const row = database.prepare(`SELECT id, ownerId, bookId, chapterIdsJson, examType, difficulty, sectionsJson, styleProfileId FROM assessment_blueprints WHERE id = ? AND ownerId = ?`).get(blueprintId, ownerId) as { id: string; ownerId: string; bookId: string; chapterIdsJson: string; examType: ExamType; difficulty: Difficulty; sectionsJson: string; styleProfileId: string | null } | undefined;
+  const row = database.prepare(`SELECT id, ownerId, bookId, chapterIdsJson, examType, examMode, olympiadBookId, difficulty, sectionsJson, styleProfileId FROM assessment_blueprints WHERE id = ? AND ownerId = ?`).get(blueprintId, ownerId) as { id: string; ownerId: string; bookId: string; chapterIdsJson: string; examType: ExamType; examMode: ExamMode; olympiadBookId: string | null; difficulty: Difficulty; sectionsJson: string; styleProfileId: string | null } | undefined;
   if (!row) throw new AssessmentPaperValidationError('blueprintId', '命题蓝图不存在于当前本地资料上下文中');
-  const book = requireBook(database, row.bookId, ownerId); const chapterIds = JSON.parse(row.chapterIdsJson) as string[]; const chapterTitles = selectedTitles(book, chapterIds); const markdown = await (dependencies.readMarkdown || ((path: string) => fs.readFile(path, 'utf-8')))(book.mdPath!); const profile = styleSummary(database, ownerId, row.styleProfileId); const blueprint = { id: row.id, subject: normalizeSubject(book.subject), grade: book.grade, chapterTitles, examType: row.examType, difficulty: row.difficulty, sections: JSON.parse(row.sectionsJson) };
-  const generated = await (dependencies.generatePaper || generateOriginalPaper)({ ...blueprint, textbookExcerpt: selectedExcerpt(markdown, chapterTitles), styleSummary: profile?.summary || null }); const content = validatePaper(generated, blueprint); const version = (database.prepare(`SELECT COUNT(*) AS count FROM assessment_papers WHERE blueprintId = ?`).get(row.id) as { count: number }).count + 1; const id = randomUUID(); const now = Date.now();
+  const book = requireBook(database, row.bookId, ownerId); const chapterIds = JSON.parse(row.chapterIdsJson) as string[]; const chapterTitles = selectedTitles(book, chapterIds); const markdown = await (dependencies.readMarkdown || ((path: string) => fs.readFile(path, 'utf-8')))(book.mdPath!); const profile = styleSummary(database, ownerId, row.styleProfileId); const olympiad = row.examMode === 'olympiad' ? olympiadStyle(database, ownerId, row.olympiadBookId, book.grade) : null; const blueprint = { id: row.id, subject: normalizeSubject(book.subject), grade: book.grade, chapterTitles, examType: row.examType, examMode: row.examMode, difficulty: row.difficulty, sections: JSON.parse(row.sectionsJson) };
+  const generated = await (dependencies.generatePaper || generateOriginalPaper)({ ...blueprint, textbookExcerpt: selectedExcerpt(markdown, chapterTitles), styleSummary: profile?.summary || null, olympiadStyle: olympiad }); const content = validatePaper(generated, blueprint); const version = (database.prepare(`SELECT COUNT(*) AS count FROM assessment_papers WHERE blueprintId = ?`).get(row.id) as { count: number }).count + 1; const id = randomUUID(); const now = Date.now();
   database.prepare(`INSERT INTO assessment_papers (id, blueprintId, ownerId, schemaVersion, contentJson, totalScore, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, row.id, ownerId, content.schemaVersion, JSON.stringify({ ...content, generationVersion: version, blueprint }), content.totalScore, 'completed', now);
   return { id, blueprintId: row.id, ownerId, generationVersion: version, schemaVersion: content.schemaVersion, status: 'completed', totalScore: content.totalScore, content, createdAt: now };
 }

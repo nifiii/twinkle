@@ -9,7 +9,9 @@ import { normalizeSubject } from '../utils/subject.js';
 export const LEARNING_PACKAGE_KINDS = [
   'english-listening',
   'english-video',
+  'math-video',
   'math-thinking',
+  'chinese-video',
   'science-video',
   'review-outline',
 ] as const;
@@ -56,7 +58,7 @@ interface ExternalResourceRow {
   sourceName: string;
   durationSeconds: number | null;
   ageLabel: string | null;
-  url: string;
+  embedUrl: string | null;
 }
 
 export class LearningPackageValidationError extends Error {
@@ -194,27 +196,29 @@ function isHealthyPublicUrl(value: string): boolean {
 
 function getHealthyResources(database: Database.Database, book: BookRow): Array<Record<string, unknown>> {
   const rows = database.prepare(`
-    SELECT id, title, sourceName, durationSeconds, ageLabel, url
+    SELECT id, title, sourceName, durationSeconds, ageLabel, embedUrl
     FROM external_resources
     WHERE subject = ?
       AND grade = ?
       AND status = 'approved'
       AND reviewedAt IS NOT NULL
       AND linkHealthStatus = 'healthy'
+      AND embedStatus = 'allowed'
   `).all(normalizeSubject(book.subject), book.grade || '') as ExternalResourceRow[];
 
   return rows
     .filter(resource => Boolean(resource.title?.trim())
       && typeof resource.durationSeconds === 'number' && resource.durationSeconds > 0
       && Boolean(resource.ageLabel?.trim())
-      && isHealthyPublicUrl(resource.url))
+      && Boolean(resource.embedUrl?.trim())
+      && isHealthyPublicUrl(resource.embedUrl!))
     .map(resource => ({
       id: resource.id,
       title: resource.title,
       sourceName: resource.sourceName,
       durationSeconds: resource.durationSeconds,
       ageLabel: resource.ageLabel,
-      url: resource.url,
+      embedUrl: resource.embedUrl,
     }));
 }
 
@@ -285,8 +289,24 @@ export async function createLearningPackage(
         request: { text: listening.script, coursewareId: id, chunkIdx: 0 },
       },
     };
-  } else if (kind === 'math-thinking' || kind === 'science-video' || kind === 'english-video') {
-    requireSubject(book, kind === 'math-thinking' ? '数学' : kind === 'science-video' ? '科学' : '英语');
+  } else if (kind === 'math-thinking') {
+    requireSubject(book, '数学');
+    content = {
+      original: true,
+      chapterTitles: selected.map(chapter => chapter.title),
+      training: {
+        focus: ['数感', '数形结合', '方程思维'],
+        checklist: ['回顾本章关键数量关系', '用图示或表格表达题意', '完成本章原创思维训练'],
+      },
+    };
+  } else if (kind === 'english-video' || kind === 'math-video' || kind === 'chinese-video' || kind === 'science-video') {
+    const subjectByKind: Record<Extract<LearningPackageKind, `${string}-video`>, string> = {
+      'english-video': '英语',
+      'math-video': '数学',
+      'chinese-video': '语文',
+      'science-video': '科学',
+    };
+    requireSubject(book, subjectByKind[kind]);
     if (!book.grade?.trim()) throw new LearningPackageValidationError('grade', '资料缺少适用年级，不能匹配学习资源');
     content = {
       chapterTitles: selected.map(chapter => chapter.title),

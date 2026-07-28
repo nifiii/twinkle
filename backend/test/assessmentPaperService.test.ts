@@ -6,9 +6,9 @@ import { createAssessmentBlueprint, createAssessmentPaper, getAssessmentPaper } 
 
 function setup() {
   const database = new Database(':memory:');
-  database.exec('CREATE TABLE books (id TEXT PRIMARY KEY, ownerId TEXT, subject TEXT, grade TEXT, tableOfContents TEXT, mdPath TEXT, status TEXT)');
+  database.exec('CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, ownerId TEXT, subject TEXT, grade TEXT, tableOfContents TEXT, mdPath TEXT, status TEXT, category TEXT, tags TEXT)');
   initLearningDomainDatabase(database);
-  database.prepare(`INSERT INTO books VALUES ('math', 'shared', '数学', '小学四年级上册', ?, '/tmp/math.md', 'completed')`).run(JSON.stringify([{ id: 'unit-1', title: '第一单元' }, { id: 'unit-2', title: '第二单元' }]));
+  database.prepare(`INSERT INTO books (id, title, ownerId, subject, grade, tableOfContents, mdPath, status) VALUES ('math', '数学教材', 'shared', '数学', '小学四年级上册', ?, '/tmp/math.md', 'completed')`).run(JSON.stringify([{ id: 'unit-1', title: '第一单元' }, { id: 'unit-2', title: '第二单元' }]));
   return database;
 }
 
@@ -53,4 +53,29 @@ test('matches a Chinese unit title to its numbered textbook heading without cros
   });
   assert.match(String(calls[0].textbookExcerpt), /数位、读写大数/);
   assert.doesNotMatch(String(calls[0].textbookExcerpt), /第二单元正文/);
+});
+
+test('uses only matching Olympiad material metadata for an original math paper', async () => {
+  const database = setup();
+  database.prepare(`INSERT INTO books (id, title, ownerId, subject, grade, tableOfContents, mdPath, status, category, tags) VALUES ('olympiad', '希望杯四年级', 'child_1', '数学', '小学四年级上册', '[]', '/tmp/olympiad.md', 'completed', '奥数', '["数感","数形结合"]')`).run();
+  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-1'], examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad' }, { database });
+  const calls: Record<string, unknown>[] = [];
+  await createAssessmentPaper({ ownerId: 'child_1', blueprintId: blueprint.id }, {
+    database,
+    readMarkdown: async () => '# 第一单元\n教材正文足够长，用于生成原创题目，不引用奥数资料原题。'.repeat(8),
+    generatePaper: async (input: Record<string, unknown>) => { calls.push(input); return generated(input); },
+  });
+  assert.equal(blueprint.examMode, 'olympiad');
+  assert.equal(blueprint.olympiadMaterial?.id, 'olympiad');
+  assert.deepEqual(calls[0].olympiadStyle, { id: 'olympiad', title: '希望杯四年级', category: '奥数', tags: '["数感","数形结合"]' });
+  assert.doesNotMatch(JSON.stringify(calls[0]), /olympiad\.md/);
+});
+
+test('rejects an Olympiad material with a different grade', async () => {
+  const database = setup();
+  database.prepare(`INSERT INTO books (id, title, ownerId, subject, grade, tableOfContents, mdPath, status, category) VALUES ('olympiad-five', '希望杯五年级', 'child_1', '数学', '小学五年级上册', '[]', '/tmp/olympiad-five.md', 'completed', '奥数')`).run();
+  await assert.rejects(
+    () => createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-1'], examType: 'unit', examMode: 'olympiad', olympiadBookId: 'olympiad-five' }, { database }),
+    (error: unknown) => error instanceof Error && /年级匹配/.test(error.message),
+  );
 });
