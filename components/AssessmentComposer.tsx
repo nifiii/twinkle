@@ -22,7 +22,10 @@ const sectionLabels: Record<AssessmentBlueprint['sections'][number]['type'], str
 function chaptersFor(book: EBook | undefined) {
   const chapters: Array<{ id: string; title: string }> = [];
   const visit = (nodes: EBook['tableOfContents']) => (nodes || []).forEach(node => {
-    if (node.title?.trim()) chapters.push({ id: node.id, title: node.title.trim() });
+    // Parsed catalogs created before the current contract may use numeric IDs.
+    // Keep the browser and API boundary string-only without mutating archived catalog data.
+    const id = typeof node.id === 'string' || typeof node.id === 'number' ? String(node.id).trim() : '';
+    if (id && node.title?.trim()) chapters.push({ id, title: node.title.trim() });
     if (node.children?.length) visit(node.children);
   });
   if (book) visit(book.tableOfContents);

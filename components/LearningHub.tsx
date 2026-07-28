@@ -29,7 +29,10 @@ function chaptersFor(book: EBook | undefined) {
   const chapters: Array<{ id: string; title: string }> = [];
   const visit = (nodes: EBook['tableOfContents']) => {
     for (const node of nodes || []) {
-      if (node.title?.trim()) chapters.push({ id: node.id, title: node.title.trim() });
+      // Catalog IDs are persisted data and older imports can contain numbers.
+      // Normalize only this UI-to-request boundary so all selection state stays string-based.
+      const id = typeof node.id === 'string' || typeof node.id === 'number' ? String(node.id).trim() : '';
+      if (id && node.title?.trim()) chapters.push({ id, title: node.title.trim() });
       if (node.children?.length) visit(node.children);
     }
   };

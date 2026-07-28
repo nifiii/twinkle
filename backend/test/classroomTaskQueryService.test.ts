@@ -18,16 +18,16 @@ function createDatabase(): Database.Database {
 function seedLegacyContent(database: Database.Database): void {
   database.prepare(`INSERT INTO books VALUES (?, ?, ?, ?, ?, ?)`).run(
     'book-1', '义务教育教科书·数学四年级上册', '数学', '四年级', 'shared',
-    JSON.stringify([{ id: 'chapter-1', title: '第一单元 大数的认识' }]),
+    JSON.stringify([{ id: 1, title: '第一单元 大数的认识' }]),
   );
   database.prepare(`INSERT INTO classroom_items VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
     'classroom-1', 'courseware', '义务教育教科书·数学四年级上册', '第一单元 大数的认识', '数学', 'child_1', 1000,
   );
   database.prepare(`INSERT INTO learning_packages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    'package-1', 'child_1', 'book-1', JSON.stringify(['chapter-1']), 'math-thinking', '{}', 'completed', 1, 1100, 1200,
+    'package-1', 'child_1', 'book-1', JSON.stringify(['1']), 'math-thinking', '{}', 'completed', 1, 1100, 1200,
   );
   database.prepare(`INSERT INTO assessment_blueprints (id, ownerId, bookId, chapterIdsJson, examType, difficulty, sectionsJson, styleProfileId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    'blueprint-1', 'child_1', 'book-1', JSON.stringify(['chapter-1']), 'unit', 'standard', '[]', null, 1300,
+    'blueprint-1', 'child_1', 'book-1', JSON.stringify(['1']), 'unit', 'standard', '[]', null, 1300,
   );
   database.prepare(`INSERT INTO assessment_papers VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
     'paper-1', 'blueprint-1', 'child_1', 1, '{}', 100, 'completed', 1400,
@@ -39,7 +39,7 @@ test('unifies current tasks with classroom, package, and paper legacy summaries'
   seedLegacyContent(database);
   const { task } = createLearningTask(database, {
     ownerId: 'child_1', requestKey: 'task-1', taskType: 'courseware', sourceType: 'chapter',
-    subject: '数学', grade: '四年级', title: '第一单元·课件', bookId: 'book-1', chapterIds: ['chapter-1'],
+    subject: '数学', grade: '四年级', title: '第一单元·课件', bookId: 'book-1', chapterIds: ['1'],
   }, 1500);
   const result = listClassroomTasks(database, 'child_1', { limit: 2 });
 
@@ -83,7 +83,7 @@ test('returns task source, links, and events without embedding original content'
   seedLegacyContent(database);
   const { task } = createLearningTask(database, {
     ownerId: 'child_1', requestKey: 'task-2', taskType: 'courseware', sourceType: 'chapter',
-    subject: '数学', grade: '四年级', title: '第一单元·课件', bookId: 'book-1', chapterIds: ['chapter-1'],
+    subject: '数学', grade: '四年级', title: '第一单元·课件', bookId: 'book-1', chapterIds: ['1'],
   }, 1500);
   updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1600 });
   completeLearningTask(database, task.id, [{ entityType: 'classroom_courseware', entityId: 'classroom-1', role: 'primary' }], 1700);
@@ -105,7 +105,7 @@ test('preserves historical video task records without exposing playback data', (
     .run('video-1', '大数的认识动画', '数学', '四年级', '[]', 'https://video.example/watch', '示例平台', 120, '适合四年级', 1000, 'approved', 'healthy', 'allowed', 'https://video.example/embed/1', 1000, 1000);
   const { task } = createLearningTask(database, {
     ownerId: 'child_1', requestKey: 'video-task', taskType: 'video', sourceType: 'chapter',
-    subject: '数学', grade: '四年级', title: '第一单元·视频', bookId: 'book-1', chapterIds: ['chapter-1'],
+    subject: '数学', grade: '四年级', title: '第一单元·视频', bookId: 'book-1', chapterIds: ['1'],
   }, 1500);
   updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1550 });
   completeLearningTask(database, task.id, [{ entityType: 'external_resource', entityId: 'video-1', role: 'resource' }], 1600);
