@@ -116,7 +116,10 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   }, [chapterId, chapters]);
 
   useEffect(() => {
-    if (view !== 'textbook' || textbookMode !== 'chapter' || !bookId || !chapterId) { setChapterActions([]); return; }
+    // A book switch retains the previous chapter ID for one render. Wait until
+    // that ID is confirmed in the new catalog so an obsolete request cannot
+    // overwrite the valid chapter state with a transient error.
+    if (view !== 'textbook' || textbookMode !== 'chapter' || !bookId || !chapterId || !selectedChapter) { setChapterActions([]); return; }
     let cancelled = false;
     setActionsLoading(true); setTextbookError(''); setSelectedAction(null);
     fetchChapterActions({ ownerId: currentUser.id, bookId, chapterId })
