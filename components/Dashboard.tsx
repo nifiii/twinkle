@@ -202,7 +202,7 @@ const StatCards: React.FC<{
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <Card hover className="p-5" onClick={() => onJump('tutor', 'courseware')}>
+      <Card hover className="p-5" onClick={() => onJump('tutor')}>
         <div className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center bg-neon-blue/15 shadow-glow-sm">
           <BookOpen className="w-5 h-5 text-neon-blue" />
         </div>
@@ -210,7 +210,7 @@ const StatCards: React.FC<{
         <div className="text-xs text-cyber-muted">待学课件</div>
       </Card>
 
-      <Card hover className="p-5" onClick={() => onJump('tutor', 'wrong')}>
+      <Card hover className="p-5" onClick={() => onJump('assistant', 'wrong')}>
         <div className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center bg-rose-400/15">
           <AlertCircle className="w-5 h-5 text-rose-400" />
         </div>
@@ -218,7 +218,7 @@ const StatCards: React.FC<{
         <div className="text-xs text-cyber-muted">待订正错题</div>
       </Card>
 
-      <Card hover className="p-5" onClick={() => onJump('tutor', 'quiz')}>
+      <Card hover className="p-5" onClick={() => onJump('tutor')}>
         <div className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center bg-neon-amber/15 shadow-glow-amber">
           <FileText className="w-5 h-5 text-neon-amber" />
         </div>
@@ -226,7 +226,7 @@ const StatCards: React.FC<{
         <div className="text-xs text-cyber-muted">待完成测验</div>
       </Card>
 
-      <Card hover className="p-5" onClick={() => onJump('tutor', 'history')}>
+      <Card hover className="p-5" onClick={() => onJump('tutor')}>
         <div
           className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center"
           style={{ backgroundColor: masteryBg }}
@@ -369,7 +369,7 @@ const PendingCoursewareList: React.FC<{
             badgeColor="bg-neon-blue/15 text-neon-blue border border-neon-blue/30"
             primary={`${it.bookTitle}·${it.chapter}`}
             secondary={`${it.slideCount || '?'} 节 · 创建于 ${formatDate(it.createdAt)}`}
-            onClick={() => onTabChange('tutor', `courseware/${it.id}`)}
+            onClick={() => onTabChange('tutor')}
           />
         ))}
       </div>
@@ -399,7 +399,7 @@ const PendingWrongList: React.FC<{
             badgeColor="bg-rose-400/15 text-rose-300 border border-rose-400/30"
             primary={it.snippet || '（题干为空）'}
             secondary={`录入于 ${formatDate(it.timestamp)}`}
-            onClick={() => onTabChange('resources', 'workshop')}
+            onClick={() => onTabChange('assistant', 'wrong')}
           />
         ))}
       </div>
@@ -431,7 +431,7 @@ const PendingQuizList: React.FC<{
               badgeColor={isWrong ? 'bg-neon-amber/20 text-neon-amber border border-neon-amber/40' : 'bg-neon-amber/15 text-neon-amber border border-neon-amber/30'}
               primary={`${isWrong ? '错题测验·' : ''}${it.bookTitle}·${it.chapter}`}
               secondary={`${it.questionCount || '?'} 题 · 创建于 ${formatDate(it.createdAt)}`}
-              onClick={() => onTabChange('tutor', isWrong ? `wrong/${it.id}` : `quiz/${it.id}`)}
+              onClick={() => onTabChange('tutor')}
             />
           );
         })}

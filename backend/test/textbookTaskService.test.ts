@@ -30,6 +30,14 @@ test('reports textbook chapter actions without video or Olympiad chapter couplin
   assert.equal(getChapterActions('child_1', 'chinese-book', 'chapter-1', database).some(action => action.action === 'video'), false);
 });
 
+test('keeps Olympiad and math competition materials out of textbook chapter learning', () => {
+  const database = createDatabase();
+  database.prepare(`INSERT INTO books (id, title, subject, grade, ownerId, status, mdPath, tableOfContents, tags) VALUES ('competition-4', '数学竞赛训练', '数学', '四年级', 'child_1', 'completed', '/tmp/competition.md', '[]', '["数学竞赛"]')`).run();
+
+  assert.deepEqual(getOlympiadMaterials('child_1', database), [{ id: 'competition-4', title: '数学竞赛训练', grade: '四年级' }]);
+  assert.throws(() => getChapterActions('child_1', 'competition-4', 'chapter-1', database), TextbookTaskUnavailableError);
+});
+
 test('accepts numeric chapter IDs after browser route parameters convert them to strings', async () => {
   const database = createDatabase();
   database.prepare(`UPDATE books SET tableOfContents = ? WHERE id = 'chinese-book'`).run(JSON.stringify([{ id: 1, title: '第一单元' }]));
