@@ -9,7 +9,9 @@ import { normalizeSubject } from '../utils/subject.js';
 export const LEARNING_PACKAGE_KINDS = [
   'english-listening',
   'english-video',
+  'math-video',
   'math-thinking',
+  'chinese-video',
   'science-video',
   'review-outline',
 ] as const;
@@ -287,8 +289,24 @@ export async function createLearningPackage(
         request: { text: listening.script, coursewareId: id, chunkIdx: 0 },
       },
     };
-  } else if (kind === 'math-thinking' || kind === 'science-video' || kind === 'english-video') {
-    requireSubject(book, kind === 'math-thinking' ? '数学' : kind === 'science-video' ? '科学' : '英语');
+  } else if (kind === 'math-thinking') {
+    requireSubject(book, '数学');
+    content = {
+      original: true,
+      chapterTitles: selected.map(chapter => chapter.title),
+      training: {
+        focus: ['数感', '数形结合', '方程思维'],
+        checklist: ['回顾本章关键数量关系', '用图示或表格表达题意', '完成本章原创思维训练'],
+      },
+    };
+  } else if (kind === 'english-video' || kind === 'math-video' || kind === 'chinese-video' || kind === 'science-video') {
+    const subjectByKind: Record<Extract<LearningPackageKind, `${string}-video`>, string> = {
+      'english-video': '英语',
+      'math-video': '数学',
+      'chinese-video': '语文',
+      'science-video': '科学',
+    };
+    requireSubject(book, subjectByKind[kind]);
     if (!book.grade?.trim()) throw new LearningPackageValidationError('grade', '资料缺少适用年级，不能匹配学习资源');
     content = {
       chapterTitles: selected.map(chapter => chapter.title),

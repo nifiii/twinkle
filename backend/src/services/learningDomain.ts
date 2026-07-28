@@ -168,6 +168,8 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       bookId TEXT NOT NULL,
       chapterIdsJson TEXT NOT NULL,
       examType TEXT NOT NULL,
+      examMode TEXT NOT NULL DEFAULT 'textbook',
+      olympiadBookId TEXT,
       difficulty TEXT NOT NULL,
       sectionsJson TEXT NOT NULL,
       styleProfileId TEXT,
@@ -266,6 +268,18 @@ export function initLearningDomainDatabase(db: Database.Database): void {
   for (const [name, definition] of additions) {
     if (!existingColumns.has(name)) {
       db.exec(`ALTER TABLE external_resources ADD COLUMN ${name} ${definition}`);
+    }
+  }
+
+  const blueprintColumns = db.prepare('PRAGMA table_info(assessment_blueprints)').all() as Array<{ name: string }>;
+  const existingBlueprintColumns = new Set(blueprintColumns.map(column => column.name));
+  const blueprintAdditions = [
+    ['examMode', "TEXT NOT NULL DEFAULT 'textbook'"],
+    ['olympiadBookId', 'TEXT'],
+  ] as const;
+  for (const [name, definition] of blueprintAdditions) {
+    if (!existingBlueprintColumns.has(name)) {
+      db.exec(`ALTER TABLE assessment_blueprints ADD COLUMN ${name} ${definition}`);
     }
   }
 }

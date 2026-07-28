@@ -26,7 +26,7 @@ function seedLegacyContent(database: Database.Database): void {
   database.prepare(`INSERT INTO learning_packages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     'package-1', 'child_1', 'book-1', JSON.stringify(['chapter-1']), 'math-thinking', '{}', 'completed', 1, 1100, 1200,
   );
-  database.prepare(`INSERT INTO assessment_blueprints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  database.prepare(`INSERT INTO assessment_blueprints (id, ownerId, bookId, chapterIdsJson, examType, difficulty, sectionsJson, styleProfileId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     'blueprint-1', 'child_1', 'book-1', JSON.stringify(['chapter-1']), 'unit', 'standard', '[]', null, 1300,
   );
   database.prepare(`INSERT INTO assessment_papers VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(

@@ -4,6 +4,7 @@ import { LearningOwnerContextError, readLearningFeatureFlags } from '../services
 import { LearningTaskValidationError, retryLearningTask } from '../services/learningTaskService.js';
 import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLegacyTaskReference } from '../services/classroomTaskQueryService.js';
 import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
+import { createTextbookTask, getChapterActions, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -14,6 +15,7 @@ const enabled = (res: Response) => {
 const fail = (error: unknown, res: Response) => {
   if (error instanceof LearningOwnerContextError) return res.status(400).json({ success: false, errorCode: 'invalid_context', error: '需要当前学生档案' });
   if (error instanceof LearningTaskValidationError) return res.status(400).json({ success: false, errorCode: 'invalid_source', field: error.field, error: error.message });
+  if (error instanceof TextbookTaskUnavailableError) return res.status(400).json({ success: false, errorCode: error.code, error: error.message });
   console.error('[learning-tasks]', error);
   return res.status(500).json({ success: false, errorCode: 'generation_failed', error: '学习任务读取失败，请稍后重试' });
 };
@@ -45,13 +47,16 @@ router.get('/assistant/wrong-problems', (req: Request, res: Response) => {
     return res.json({ success: true, data: listWrongProblemCandidates(req.query.ownerId, req.query.subject, db) });
   } catch (error) { return fail(error, res); }
 });
+router.get('/assistant/books/:bookId/chapters/:chapterId/actions', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: getChapterActions(req.query.ownerId, req.params.bookId, req.params.chapterId, db) }); } catch (error) { return fail(error, res); }
+});
 router.post('/learning-tasks', async (req: Request, res: Response) => {
   if (!enabled(res)) return;
   try {
-    if (req.body?.taskType !== 'wrong_review') {
-      return res.status(400).json({ success: false, errorCode: 'capability_unavailable', error: '该学习任务类型将在后续版本开放' });
-    }
-    const task = await createWrongReviewTask(req.body || {});
+    const task = req.body?.taskType === 'wrong_review'
+      ? await createWrongReviewTask(req.body || {})
+      : await createTextbookTask(req.body || {});
     const detail = getClassroomTask(db, task.id, req.body?.ownerId);
     if (!detail) throw new Error('学习任务创建后无法读取');
     return res.status(task.generationStatus === 'ready' ? 201 : 200).json({ success: true, data: taskSummary(detail) });

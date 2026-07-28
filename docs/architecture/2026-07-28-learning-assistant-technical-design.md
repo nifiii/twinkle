@@ -107,7 +107,7 @@
 | `english_listening` | 英语教材、具体章节、启用 packages | 现有 `learning_packages`、TTS 与两次播放规则 | `primary` |
 | `video` | 指定学科教材、具体章节、合格 `external_resource` | 学习包进度或轻量视频任务适配器；只保存审核过的 embed URL | `resource`，可选 `primary` |
 | `math_thinking` | 数学教材、具体章节 | 现有 `learning_packages` | `primary` |
-| `assessment` | 教材、章节、类型、难度；奥数时校验资料年级 | 现有蓝图、`assessment_papers`、attempt、export、diagnosis 服务 | `paper` |
+| `assessment` | 教材、章节、类型、难度；奥数模式时校验指定资料的学科、奥数标记与年级 | 现有蓝图、`assessment_papers`、attempt、export、diagnosis 服务 | `paper` |
 
 错题聚合的关键约束：一份任务中的全部选题必须属于选定学科；服务从两类原始错题中提取知识点并生成一份聚合讲解和一份原创测验。仅 `scanned_item` 来源建立 `wrong_problem_quiz_links`，以保持既有待订正统计语义；`quiz_result` 来源绝不伪造错题本链接。不把多题任务伪装成多条独立任务。
 
@@ -149,7 +149,7 @@
 
 `GET /assistant/books/:bookId/chapters/:chapterId/actions?ownerId=<id>`
 
-返回所选章节允许动作与原因：`{ action, available, reasonCode?, resourceOptions? }`。视频资源仅返回已通过全部审核字段的 `{ id, title, durationSeconds, ageLabel, embedUrl }`。
+返回所选章节允许动作与原因：`{ action, available, reasonCode?, resourceOptions?, examModes?, olympiadMaterials? }`。数学的 `assessment` 始终提供 `textbook`；只有当前家庭可见、标注为奥数且年级匹配的资料存在时才额外提供 `olympiad` 和资料 ID/标题。视频资源仅返回已通过全部审核字段的 `{ id, title, durationSeconds, ageLabel, embedUrl }`。
 
 #### 任务写入与读取
 
@@ -171,7 +171,7 @@
 }
 ```
 
-教材流将 `source` 替换为 `{ "kind":"chapter", "bookId":"...", "chapterIds":["..."], "options": { "examType":"unit", "difficulty":"standard", "resourceId":"..." } }`。成功返回 `201 { success: true, data: TaskSummary }`；相同 `requestKey` 返回原任务 `200`。
+教材流将 `source` 替换为 `{ "kind":"chapter", "bookId":"...", "chapterIds":["..."], "options": { "examMode":"textbook", "examType":"unit", "difficulty":"standard", "resourceId":"..." } }`。`examMode` 默认为 `textbook`；选择 `olympiad` 时必须为数学并提供 `olympiadBookId`，该资料必须是当前家庭可见、年级匹配且标注为奥数的上传资料。奥数资料只以标题、分类和标签组成风格摘要，不读取、保存或发送其正文、原题或答案。成功返回 `201 { success: true, data: TaskSummary }`；相同 `requestKey` 返回原任务 `200`。
 
 `GET /learning-tasks?ownerId=<id>&status=&subject=&type=&bookId=&cursor=`
 
