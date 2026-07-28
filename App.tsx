@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import ResourcesShell, { ResourcesSub } from './components/ResourcesShell';
 import { AIClassroom } from './components/AIClassroom';
+import ClassroomTaskHub from './components/ClassroomTaskHub';
 import ProfilePage from './components/ProfilePage';
 import LearningAssistant from './components/LearningAssistant';
 import { ScannedItem, UserProfile, EBook, KnowledgeStatus, ProcessingStatus } from './types';
@@ -393,7 +394,9 @@ const App: React.FC = () => {
             />
           );
         case 'tutor':
-          return <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
+          return tutorSubPath === '' || tutorSubPath.startsWith('task/')
+            ? <ClassroomTaskHub currentUser={currentUser} subPath={tutorSubPath} onOpenHub={() => handleTabChange('tutor')} onOpenLegacy={(subPath) => handleTabChange('tutor', subPath)} />
+            : <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
         case 'assistant':
           return <LearningAssistant currentUser={currentUser} view={assistantSubPath === 'textbook' ? 'textbook' : 'wrong'} onViewChange={(view) => handleTabChange('assistant', view)} onOpenClassroom={() => handleTabChange('tutor')} />;
         case 'decommissioned':
