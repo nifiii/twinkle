@@ -59,7 +59,10 @@ function requireBook(database: Database.Database, bookId: unknown, ownerId: stri
 }
 
 function selectedTitles(book: ReturnType<typeof requireBook>, chapterIds: string[]) {
-  const map = new Map(flatten(toc(book.tableOfContents)).map(item => [item.id, item.title]));
+  // Browser route parameters and persisted blueprint IDs are strings, while
+  // older textbook catalogs may store numeric IDs. Compare their stable text
+  // representation so validation remains strict without rejecting real chapters.
+  const map = new Map(flatten(toc(book.tableOfContents)).map(item => [String(item.id), item.title]));
   const titles = chapterIds.map(id => map.get(id));
   if (titles.some(title => !title?.trim())) throw new AssessmentPaperValidationError('chapterIds', '所选章节不在教材目录中');
   return titles as string[];

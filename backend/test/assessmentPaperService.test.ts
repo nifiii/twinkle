@@ -25,6 +25,19 @@ test('creates a standard blueprint by default and ignores an unreviewed style pr
   assert.equal(blueprint.style, null);
 });
 
+test('keeps numeric catalog chapter IDs valid from blueprint through paper generation', async () => {
+  const database = setup();
+  database.prepare(`UPDATE books SET tableOfContents = ? WHERE id = 'math'`).run(JSON.stringify([{ id: 1, title: '第一单元' }]));
+  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['1'], examType: 'unit' }, { database });
+  const paper = await createAssessmentPaper({ ownerId: 'child_1', blueprintId: blueprint.id }, {
+    database,
+    readMarkdown: async () => '# 第一单元\n本单元教材正文包含数位、读写和比较知识点，还包含近似数、计数单位和生活中的大数应用，用于验证数字目录标识在持久化后的试卷生成中仍能正确匹配，并确保命题服务得到足够的教材学习上下文。',
+    generatePaper: async input => generated(input),
+  });
+  assert.deepEqual(blueprint.chapterTitles, ['第一单元']);
+  assert.equal(paper.status, 'completed');
+});
+
 test('generates immutable paper versions from selected chapter text without exposing style sample text', async () => {
   const database = setup();
   const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-2'], examType: 'unit' }, { database });
