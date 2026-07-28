@@ -405,7 +405,15 @@ const App: React.FC = () => {
           if (packageId) return <LearningPackage id={packageId} currentUser={currentUser} onBack={() => { setLearnPath(''); window.location.hash = '#learn'; }} />;
           return <LearningHub books={filteredBooks} currentUser={currentUser} onActionSelected={async (action, book, chapterId) => {
             if (action === 'assessment') { setLearnPath('assessment/new'); window.location.hash = '#learn/assessment/new'; return; }
-            const kind = action === 'listening' ? 'english-listening' : action === 'video' ? (book.subject === '英语' ? 'english-video' : book.subject === '科学' ? 'science-video' : 'math-thinking') : 'math-thinking';
+            const subject = book.subject.trim().toLocaleLowerCase();
+            const kind = action === 'listening'
+              ? (subject === '英语' || subject === 'english' ? 'english-listening' : '')
+              : action === 'video'
+                ? (subject === '英语' || subject === 'english' ? 'english-video'
+                  : subject === '科学' || subject === 'science' ? 'science-video'
+                    : ['数学', 'math', 'maths', 'mathematics'].includes(subject) ? 'math-thinking' : '')
+                : ['数学', 'math', 'maths', 'mathematics'].includes(subject) ? 'math-thinking' : '';
+            if (!kind) { setErrorMsg('该教材暂不支持此学习方式'); return; }
             try { const data = await createLearningPackage({ ownerId: currentUser.id, bookId: book.id, chapterIds: [chapterId], kind }); setLearnPath(`package/${data.id}`); window.location.hash = `#learn/package/${data.id}`; } catch (e: any) { setErrorMsg(e.message || '创建学习包失败'); }
           }} />;
         }

@@ -28,7 +28,7 @@
 | 组件 | 数据依赖 | 不负责 |
 | --- | --- | --- |
 | `BookChapterPicker` | `books`、`currentUser` | 生成任何内容。 |
-| `LearningActionGrid` | 教材锚点、资源可用性 | 路由解析。 |
+| `LearningActionGrid` | 教材锚点、学科能力、资源可用性 | 路由解析。 |
 | `AssessmentBlueprintForm` | 蓝图草稿 | 提交作答。 |
 | `PaperRenderer` | 结构化试卷、渲染模式 `web|print|answer` | 保存和批改。 |
 | `AttemptAnswerForm` | 试卷、草稿 | 评分。 |
@@ -43,6 +43,8 @@
 - 试卷生成、PDF 导出和主观题批改返回任务 ID；轮询仅在 `queued/running` 状态执行，终态停止，网络错误最多重试 3 次。
 - `PaperRenderer` 使用相同结构化模型渲染网页与打印版，禁止由浏览器截图生成 PDF。
 - 外链只由后端返回经过审核的 URL；前端不拼接搜索地址、不保存第三方 token。
+- 行动入口必须匹配后端学科契约：英语为听力/视频/测试，数学为视频/思维练习/测试，科学为视频/测试，其他学科为测试。不得渲染一个必然被服务端拒绝的入口。
+- 当运行环境关闭学习能力时，前端须将相应入口展示为不可用并说明原因；该提示不将 `ownerId` 误表述为权限控制。
 
 ### 3.4 响应式与无障碍
 

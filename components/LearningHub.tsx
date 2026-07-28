@@ -17,6 +17,14 @@ const actions: Array<{ id: LearningAction; label: string; hint: string; icon: ty
   { id: 'assessment', label: '开始测试', hint: '约 30 分钟', icon: FileText, color: 'text-rose-700 bg-rose-50 border-rose-200' },
 ];
 
+function actionsForSubject(subject: string): LearningAction[] {
+  const normalized = subject.trim().toLocaleLowerCase();
+  if (normalized === '英语' || normalized === 'english') return ['listening', 'video', 'assessment'];
+  if (normalized === '数学' || ['math', 'maths', 'mathematics'].includes(normalized)) return ['video', 'practice', 'assessment'];
+  if (normalized === '科学' || normalized === 'science') return ['video', 'assessment'];
+  return ['assessment'];
+}
+
 function chaptersFor(book: EBook | undefined) {
   if (!book) return [];
   const chapters: Array<{ id: string; title: string }> = [];
@@ -38,6 +46,10 @@ export const LearningHub: React.FC<LearningHubProps> = ({ books, currentUser, on
   const [bookId, setBookId] = useState('');
   const selectedBook = eligibleBooks.find(book => book.id === bookId);
   const chapters = useMemo(() => chaptersFor(selectedBook), [selectedBook]);
+  const availableActions = useMemo(
+    () => actions.filter(action => selectedBook && actionsForSubject(selectedBook.subject).includes(action.id)),
+    [selectedBook],
+  );
   const [chapterId, setChapterId] = useState('');
 
   useEffect(() => {
@@ -68,22 +80,22 @@ export const LearningHub: React.FC<LearningHubProps> = ({ books, currentUser, on
       ) : (
         <>
           <div className="grid gap-4 border-y border-slate-200 py-5 md:grid-cols-2">
-            <label className="grid gap-2 text-sm font-medium">
+            <label className="grid min-w-0 gap-2 text-sm font-medium">
               教材
-              <select value={bookId} onChange={event => setBookId(event.target.value)} className="min-h-11 border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
+              <select value={bookId} onChange={event => setBookId(event.target.value)} className="min-h-11 w-full border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
                 {eligibleBooks.map(book => <option key={book.id} value={book.id}>{book.title}</option>)}
               </select>
             </label>
-            <label className="grid gap-2 text-sm font-medium">
+            <label className="grid min-w-0 gap-2 text-sm font-medium">
               章节
-              <select value={chapterId} onChange={event => setChapterId(event.target.value)} className="min-h-11 border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
+              <select value={chapterId} onChange={event => setChapterId(event.target.value)} className="min-h-11 w-full border border-slate-300 bg-white px-3 text-base outline-none focus:ring-2 focus:ring-emerald-700">
                 {chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}
               </select>
             </label>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-            {actions.map(action => {
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {availableActions.map(action => {
               const Icon = action.icon;
               return (
                 <button key={action.id} type="button" disabled={!chapterReady} onClick={() => selectedBook && onActionSelected(action.id, selectedBook, chapterId)} className={`min-h-36 border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-700 disabled:cursor-not-allowed disabled:opacity-45 ${action.color}`}>
