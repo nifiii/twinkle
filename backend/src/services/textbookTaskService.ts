@@ -11,7 +11,7 @@ import { normalizeSubject } from '../utils/subject.js';
 
 type TextbookAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'math_thinking' | 'assessment';
 type ChapterNode = { id: string | number; title: string; children?: ChapterNode[] };
-type Book = { id: string; title: string; subject: string; grade: string | null; ownerId: string; status: string; mdPath: string | null; tableOfContents: string | null };
+type Book = { id: string; title: string; subject: string; grade: string | null; ownerId: string; status: string; mdPath: string | null; tableOfContents: string | null; category: string | null; tags: string | null };
 
 export class TextbookTaskUnavailableError extends Error {
   constructor(public readonly code: 'capability_unavailable' | 'resource_unavailable', message: string) { super(message); }
@@ -32,10 +32,14 @@ function text(value: unknown, field: string, label: string, max = 128): string {
 }
 function flatten(nodes: ChapterNode[]): ChapterNode[] { return nodes.flatMap(node => [node, ...flatten(Array.isArray(node.children) ? node.children : [])]); }
 function taskType(action: TextbookAction): LearningTaskType { return action; }
+function isOlympiadMaterial(book: Pick<Book, 'category' | 'tags'>): boolean {
+  return /奥数|数学竞赛/.test([book.category || '', ...json<string[]>(book.tags, [])].join(''));
+}
 function bookFor(database: Database.Database, ownerId: string, bookId: unknown): Book {
   const id = text(bookId, 'source.bookId', '教材');
-  const book = database.prepare(`SELECT id, title, subject, grade, ownerId, status, mdPath, tableOfContents FROM books WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')`).get(id, ownerId) as Book | undefined;
+  const book = database.prepare(`SELECT id, title, subject, grade, ownerId, status, mdPath, tableOfContents, category, tags FROM books WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')`).get(id, ownerId) as Book | undefined;
   if (!book) throw new LearningTaskValidationError('source.bookId', '教材不在当前家庭资料范围内');
+  if (isOlympiadMaterial(book)) throw new TextbookTaskUnavailableError('capability_unavailable', '奥数或数学竞赛资料请从奥数模拟考试入口使用');
   if (book.status !== 'completed' || !book.mdPath) throw new TextbookTaskUnavailableError('capability_unavailable', '教材尚未完成解析');
   return book;
 }
@@ -64,7 +68,7 @@ export function getOlympiadMaterials(ownerIdInput: unknown, database: Database.D
     WHERE (ownerId = ? OR ownerId = 'shared')
       AND subject = '数学'
       AND grade IS NOT NULL AND TRIM(grade) <> ''
-      AND (category LIKE '%奥数%' OR tags LIKE '%奥数%')
+      AND (category LIKE '%奥数%' OR category LIKE '%数学竞赛%' OR tags LIKE '%奥数%' OR tags LIKE '%数学竞赛%')
     ORDER BY grade ASC, title ASC
   `).all(ownerId) as Array<{ id: string; title: string; grade: string }>;
 }

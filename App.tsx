@@ -104,8 +104,9 @@ const App: React.FC = () => {
   const [switchToast, setSwitchToast] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
 
-  // 第二参数 subPath 用于直接深链到 Tab 内部
-  // - tab='tutor': subPath = 'courseware/<id>' / 'wrong/<id>' / 'quiz/<id>' / 'history'
+  // 第二参数 subPath 用于直接深链到仍受支持的页面内部。
+  // Why: 已下线的旧课件、测验和历史路由必须统一回到智慧课堂任务入口。
+  // - tab='tutor': subPath = 'task/<id>' / 'package/<id>' / 'paper/<id>'
   // - tab='resources': subPath = 'library' / 'capture'
   const handleTabChange = (tab: string, subPath?: string) => {
     setActiveTab(tab);
