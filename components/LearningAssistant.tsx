@@ -152,11 +152,9 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   const selectAction = (action: ChapterAction) => {
     if (!action.available) return;
     if (action.action === 'assessment' && selectedChapter) {
-      const unit = selectedChapter.breadcrumb.split(' / ')[0];
-      const unitChapterIds = chapters
-        .filter(chapter => chapter.breadcrumb.split(' / ')[0] === unit)
-        .map(chapter => chapter.id);
-      setAssessmentChapterIds(unitChapterIds.length ? unitChapterIds : [selectedChapter.id]);
+      // The control declares a current-chapter scope. Flat catalogs may repeat
+      // titles, so title-based grouping could silently include other chapters.
+      setAssessmentChapterIds([selectedChapter.id]);
     }
     setSelectedAction(action.action);
     setTextbookError('');

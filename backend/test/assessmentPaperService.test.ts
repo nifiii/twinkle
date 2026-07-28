@@ -38,6 +38,24 @@ test('keeps numeric catalog chapter IDs valid from blueprint through paper gener
   assert.equal(paper.status, 'completed');
 });
 
+test('repairs an incomplete essay rubric while preserving process and result scoring', async () => {
+  const database = setup();
+  const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-1'], examType: 'unit' }, { database });
+  const paper = await createAssessmentPaper({ ownerId: 'child_1', blueprintId: blueprint.id }, {
+    database,
+    readMarkdown: async () => '# 第一单元\n本单元教材正文包含数位、读写、比较、近似数、计数单位和生活中的大数应用，确保生成试卷时能够取得有效的章节范围与命题上下文，并能验证量规结构修复不会影响试卷生成。',
+    generatePaper: async input => {
+      const content = generated(input) as any;
+      const essay = content.sections.find((section: any) => section.title === 'essay').questions[0];
+      essay.rubric = [{ id: 'only-process', score: 4, description: '只有过程', dimension: 'process' }];
+      return content;
+    },
+  });
+  const essay = paper.content.sections.flatMap((section: any) => section.questions).find((question: any) => question.type === 'essay');
+  assert.deepEqual(essay.rubric.map((point: any) => point.dimension), ['process', 'result']);
+  assert.equal(essay.rubric.reduce((sum: number, point: any) => sum + point.score, 0), essay.score);
+});
+
 test('generates immutable paper versions from selected chapter text without exposing style sample text', async () => {
   const database = setup();
   const blueprint = await createAssessmentBlueprint({ ownerId: 'child_1', bookId: 'math', chapterIds: ['unit-2'], examType: 'unit' }, { database });

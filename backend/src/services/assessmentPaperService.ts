@@ -143,6 +143,26 @@ async function generateOriginalPaper(input: Record<string, unknown>): Promise<un
   return JSON.parse(raw.replace(/^```json\s*|\s*```$/g, '').trim());
 }
 
+function normalizeEssayRubric(value: unknown, score: number, answer: string) {
+  const rubric = Array.isArray(value) ? value : [];
+  const valid = rubric.length > 0
+    && rubric.some(point => point?.dimension === 'process')
+    && rubric.some(point => point?.dimension === 'result')
+    && rubric.every(point => point?.id && point?.description && ['process', 'result', 'expression', 'knowledge'].includes(point.dimension) && Number.isFinite(point.score) && point.score > 0)
+    && rubric.reduce((sum, point) => sum + Number(point.score), 0) === score;
+  if (valid) return rubric;
+
+  // Model-generated questions can be usable while their rubric misses a field.
+  // Keep process and result independently auditable instead of failing the paper.
+  const processScore = Math.floor(score / 2);
+  const resultScore = score - processScore;
+  if (processScore <= 0 || resultScore <= 0) throw new Error('解答题分值不足以区分过程与结果');
+  return [
+    { id: 'process', score: processScore, description: '列出关键步骤，推理或计算过程正确。', dimension: 'process', acceptableExpressions: [], counterexamples: [] },
+    { id: 'result', score: resultScore, description: `结论与参考答案“${answer.slice(0, 200)}”等价。`, dimension: 'result', acceptableExpressions: [answer], counterexamples: [] },
+  ];
+}
+
 function validatePaper(value: unknown, blueprint: Record<string, unknown>) {
   const source = value as { title?: unknown; sections?: unknown };
   if (!source || typeof source !== 'object' || !Array.isArray(source.sections)) throw new Error('模型未返回结构化试卷');
@@ -153,9 +173,8 @@ function validatePaper(value: unknown, blueprint: Record<string, unknown>) {
     return { id: expected.id, type: expected.type, title: section.title || expected.type, questions: section.questions.map((question: any, questionIndex: number) => {
       if (!question?.stem || !question?.answer) throw new Error('模型返回的题目缺少题干或答案');
       if (expected.type === 'choice' && (!Array.isArray(question.options) || question.options.length < 2)) throw new Error('选择题缺少选项');
-      const rubric = expected.type === 'essay' ? question.rubric : undefined;
-      if (expected.type === 'essay' && (!Array.isArray(rubric) || rubric.length === 0 || !rubric.some(point => point?.dimension === 'process') || !rubric.some(point => point?.dimension === 'result') || rubric.some(point => !point?.id || !point?.description || !['process', 'result', 'expression', 'knowledge'].includes(point.dimension) || !Number.isFinite(point.score) || point.score <= 0) || rubric.reduce((sum, point) => sum + Number(point.score), 0) !== expected.scorePerQuestion)) throw new Error('模型返回的解答题量规不符合分值或维度要求');
-      return { id: `${expected.id}-q${questionIndex + 1}`, type: expected.type, stem: String(question.stem), options: expected.type === 'choice' ? question.options.map(String) : undefined, answer: String(question.answer), explanation: String(question.explanation || ''), score: expected.scorePerQuestion, rubric: expected.type === 'essay' ? rubric.map((point: any) => ({ id: String(point.id), score: Number(point.score), description: String(point.description), dimension: point.dimension, acceptableExpressions: Array.isArray(point.acceptableExpressions) ? point.acceptableExpressions.map(String) : [], counterexamples: Array.isArray(point.counterexamples) ? point.counterexamples.map(String) : [] })) : undefined };
+      const rubric = expected.type === 'essay' ? normalizeEssayRubric(question.rubric, expected.scorePerQuestion, String(question.answer)) : undefined;
+      return { id: `${expected.id}-q${questionIndex + 1}`, type: expected.type, stem: String(question.stem), options: expected.type === 'choice' ? question.options.map(String) : undefined, answer: String(question.answer), explanation: String(question.explanation || ''), score: expected.scorePerQuestion, rubric: rubric?.map((point: any) => ({ id: String(point.id), score: Number(point.score), description: String(point.description), dimension: point.dimension, acceptableExpressions: Array.isArray(point.acceptableExpressions) ? point.acceptableExpressions.map(String) : [], counterexamples: Array.isArray(point.counterexamples) ? point.counterexamples.map(String) : [] })) };
     }) };
   });
   if (sections.length !== wanted.length) throw new Error('模型返回的题型分区不符合蓝图');
