@@ -35,7 +35,9 @@ const isOlympiadMaterial = (book: Pick<EBook, 'category' | 'tags'>): boolean => 
 
 const flattenChapters = (nodes: EBook['tableOfContents'], ancestors: string[] = []): ChapterOption[] => nodes.flatMap(node => {
   const breadcrumb = [...ancestors, node.title].filter(Boolean);
-  return [{ id: node.id, title: node.title, breadcrumb: breadcrumb.join(' / ') }, ...flattenChapters(node.children || [], breadcrumb)];
+  const id = typeof node.id === 'string' || typeof node.id === 'number' ? String(node.id).trim() : '';
+  // Catalog headings without stable IDs are display-only; submitting one would create an invalid task source.
+  return [...(id ? [{ id, title: node.title, breadcrumb: breadcrumb.join(' / ') }] : []), ...flattenChapters(node.children || [], breadcrumb)];
 });
 
 const controlClass = 'min-h-11 rounded-xl border border-cyber-border/60 bg-cyber-surface/60 px-3 text-base text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-60';
@@ -53,6 +55,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   const [booksLoading, setBooksLoading] = useState(false);
   const [bookId, setBookId] = useState('');
   const [chapterId, setChapterId] = useState('');
+  const [assessmentChapterIds, setAssessmentChapterIds] = useState<string[]>([]);
   const [chapterActions, setChapterActions] = useState<ChapterAction[]>([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [textbookError, setTextbookError] = useState('');
@@ -105,6 +108,14 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   }, [bookId, chapters]);
 
   useEffect(() => {
+    const available = new Set(chapters.map(chapter => chapter.id));
+    setAssessmentChapterIds(current => {
+      const selected = current.filter(id => available.has(id));
+      return selected.length ? selected : (chapterId ? [chapterId] : []);
+    });
+  }, [chapterId, chapters]);
+
+  useEffect(() => {
     if (view !== 'textbook' || textbookMode !== 'chapter' || !bookId || !chapterId) { setChapterActions([]); return; }
     let cancelled = false;
     setActionsLoading(true); setTextbookError(''); setSelectedAction(null);
@@ -137,16 +148,25 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
 
   const selectAction = (action: ChapterAction) => {
     if (!action.available) return;
+    if (action.action === 'assessment' && selectedChapter) {
+      const unit = selectedChapter.breadcrumb.split(' / ')[0];
+      const unitChapterIds = chapters
+        .filter(chapter => chapter.breadcrumb.split(' / ')[0] === unit)
+        .map(chapter => chapter.id);
+      setAssessmentChapterIds(unitChapterIds.length ? unitChapterIds : [selectedChapter.id]);
+    }
     setSelectedAction(action.action);
     setTextbookError('');
   };
 
   const createChapterTask = async () => {
     if (!selectedAction || !selectedBook || !selectedChapter || !actionDetail?.available || textbookCreating) return;
+    const chapterIds = selectedAction === 'assessment' ? assessmentChapterIds : [selectedChapter.id];
+    if (!chapterIds.length) return;
     setTextbookCreating(true); setTextbookError(''); setCreatedTitle('');
     const options: Record<string, string> = selectedAction === 'assessment' ? { examType, difficulty } : {};
     try {
-      const task = await createTextbookTask({ ownerId: currentUser.id, userName: currentUser.name, taskType: selectedAction, bookId: selectedBook.id, chapterId: selectedChapter.id, options });
+      const task = await createTextbookTask({ ownerId: currentUser.id, userName: currentUser.name, taskType: selectedAction, bookId: selectedBook.id, chapterIds, options });
       setCreatedTitle(task.title);
     } catch (reason) { setTextbookError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
     finally { setTextbookCreating(false); }

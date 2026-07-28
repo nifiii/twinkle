@@ -63,7 +63,7 @@ export function createTextbookTask(input: {
   userName: string;
   taskType: TextbookTaskAction;
   bookId: string;
-  chapterId: string;
+  chapterIds: string[];
   options?: Record<string, string>;
 }) {
   return request<{ id: string; title: string; generationStatus: string }>('/api/learning-tasks', {
@@ -77,7 +77,7 @@ export function createTextbookTask(input: {
       source: {
         kind: 'chapter',
         bookId: input.bookId,
-        chapterIds: [input.chapterId],
+        chapterIds: input.chapterIds,
         options: input.options,
       },
     }),
