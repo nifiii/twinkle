@@ -43,7 +43,7 @@ interface BookRow {
 }
 
 interface ChapterNode {
-  id: string;
+  id: string | number;
   title: string;
   children?: ChapterNode[];
 }
@@ -108,7 +108,10 @@ function requireBook(database: Database.Database, bookId: unknown, ownerId: stri
 function requireChapters(book: BookRow, chapterIds: string[]): ChapterNode[] {
   const chapters = flattenChapters(parseTableOfContents(book.tableOfContents));
   if (chapters.length === 0) throw new LearningPackageValidationError('chapterIds', '教材缺少可用章节目录');
-  const selected = chapterIds.map(id => chapters.find(chapter => chapter.id === id));
+  const selected = chapterIds.map(id => {
+    const chapter = chapters.find(candidate => String(candidate.id) === id);
+    return chapter && { ...chapter, id: String(chapter.id) };
+  });
   if (selected.some(chapter => !chapter?.title?.trim())) {
     throw new LearningPackageValidationError('chapterIds', '所选章节不在教材目录中');
   }
@@ -143,24 +146,26 @@ function extractChapterExcerpt(markdown: string, selected: ChapterNode[], allCha
 
   const titleToOffset = new Map<string, number>();
   for (const chapter of allChapters) {
+    const chapterId = String(chapter.id);
     const candidates = chapterTitleCandidates(chapter.title || '');
-    if (candidates.length === 0 || titleToOffset.has(chapter.id)) continue;
+    if (candidates.length === 0 || titleToOffset.has(chapterId)) continue;
     const lineIndex = lines.findIndex(line => {
       const heading = line.match(/^\s*#{1,6}\s+(.+)$/);
       if (!heading) return false;
       const normalized = normalizeText(heading[1]);
       return candidates.some(candidate => normalized === candidate || normalized.startsWith(`${candidate} `));
     });
-    if (lineIndex >= 0) titleToOffset.set(chapter.id, offsets[lineIndex]);
+    if (lineIndex >= 0) titleToOffset.set(chapterId, offsets[lineIndex]);
   }
 
   const excerpts = selected.map(chapter => {
-    const start = titleToOffset.get(chapter.id);
+    const chapterId = String(chapter.id);
+    const start = titleToOffset.get(chapterId);
     if (start === undefined) {
       throw new LearningPackageValidationError('chapterIds', `教材中找不到“${chapter.title}”的正文`);
     }
     const nextOffsets = [...titleToOffset.entries()]
-      .filter(([id, position]) => id !== chapter.id && position > start)
+      .filter(([id, position]) => id !== chapterId && position > start)
       .map(([, position]) => position);
     const end = nextOffsets.length > 0 ? Math.min(...nextOffsets) : markdown.length;
     const excerpt = markdown.slice(start, end).trim();

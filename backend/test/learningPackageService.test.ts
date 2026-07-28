@@ -30,7 +30,7 @@ function addBook(database: Database.Database, values: {
   id: string;
   subject: string;
   grade?: string | null;
-  toc: Array<{ id: string; title: string; children?: unknown[] }>;
+  toc: Array<{ id: string | number; title: string; children?: unknown[] }>;
 }): void {
   database.prepare(`
     INSERT INTO books (id, ownerId, subject, grade, tableOfContents, mdPath, status)
@@ -74,6 +74,23 @@ test('creates an original English listening package anchored to chapter text', a
   });
   assert.ok(getLearningPackage(result.id, 'child_1', database));
   assert.equal(getLearningPackage(result.id, 'child_2', database), null);
+});
+
+test('accepts a numeric English catalog ID submitted by the browser as text', async () => {
+  const database = createDatabase();
+  addBook(database, { id: 'english-numeric-id', subject: '英语', toc: [{ id: 1, title: 'Unit 1 Come on In!' }] });
+  const result = await createLearningPackage({
+    ownerId: 'child_1', bookId: 'english-numeric-id', chapterIds: ['1'], kind: 'english-listening',
+  }, {
+    database,
+    readMarkdown: async () => '# Unit 1 Come on In!\nThis source chapter contains enough classroom greeting, introduction and dialogue practice context to generate a short original listening exercise.',
+    generateEnglishListening: async () => ({ script: 'Welcome to class.', questions: [
+      { id: 'q1', prompt: 'Where are they?', answer: 'Classroom', rubricPoints: ['识别场景'] },
+      { id: 'q2', prompt: 'Who is speaking?', answer: 'Teacher', rubricPoints: ['识别人物'] },
+    ] }),
+  });
+  assert.deepEqual(result.chapterIds, ['1']);
+  assert.equal(result.status, 'completed');
 });
 
 test('persists at most two completed listening plays and submission', async () => {
