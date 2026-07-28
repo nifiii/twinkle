@@ -416,9 +416,9 @@ const App: React.FC = () => {
           }
           return tutorSubPath === '' || tutorSubPath.startsWith('task/')
             ? <ClassroomTaskHub currentUser={currentUser} books={filteredBooks} subPath={tutorSubPath} onOpenHub={() => handleTabChange('tutor')} onOpenLegacy={(subPath) => handleTabChange('tutor', subPath)} />
-            : <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
+            : <section aria-labelledby="tutor-decommissioned-title" className="mx-auto max-w-3xl py-16 text-center"><h1 id="tutor-decommissioned-title" className="text-2xl font-semibold text-cyber-text">页面已下线</h1><p className="mt-3 text-sm text-cyber-muted">学习内容已统一迁入智慧课堂。</p><button type="button" onClick={() => handleTabChange('tutor')} className="mt-8 min-h-11 border border-neon-blue px-4 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">返回智慧课堂</button></section>;
         case 'assistant':
-          return <LearningAssistant currentUser={currentUser} view={assistantSubPath === 'textbook' ? 'textbook' : 'wrong'} onViewChange={(view) => handleTabChange('assistant', view)} onOpenClassroom={() => handleTabChange('tutor')} />;
+          return <LearningAssistant currentUser={currentUser} view={assistantSubPath === 'wrong' ? 'wrong' : 'textbook'} onViewChange={(view) => handleTabChange('assistant', view)} onOpenClassroom={() => handleTabChange('tutor')} />;
         case 'decommissioned':
           return <section aria-labelledby="decommissioned-title" className="mx-auto max-w-3xl py-16 text-center"><h1 id="decommissioned-title" className="text-2xl font-semibold text-cyber-text">页面已下线</h1><div className="mt-8 flex flex-wrap justify-center gap-3"><button type="button" onClick={() => handleTabChange('assistant')} className="min-h-11 border border-neon-blue/50 px-4 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">学习小助手</button><button type="button" onClick={() => handleTabChange('tutor')} className="min-h-11 border border-cyber-border px-4 text-sm font-medium text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue">智慧课堂</button></div></section>;
         default:

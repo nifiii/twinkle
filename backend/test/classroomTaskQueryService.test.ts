@@ -65,6 +65,19 @@ test('resolves legacy targets read-only and detects removed primary entities', (
   assert.equal(getClassroomTask(database, 'legacy:learning_package:package-1', 'child_1'), null);
 });
 
+test('indexes a historical classroom quiz result and resolves its native detail reference', () => {
+  const database = createDatabase();
+  database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, correctCount INTEGER, total INTEGER, percentage INTEGER, status TEXT, createdAt INTEGER)`);
+  database.prepare(`INSERT INTO quiz_results VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run('result-1', 'quiz-1', '数学四年级上册', '第一单元', '数学', 'child_1', 8, 10, 80, 'completed', 2000);
+
+  const result = listClassroomTasks(database, 'child_1', { taskType: 'quiz_result' });
+  assert.equal(result.items[0]?.id, 'legacy:quiz_result:result-1');
+  assert.equal(result.items[0]?.primaryLink?.entityType, 'quiz_result');
+  assert.equal(getClassroomTask(database, 'legacy:quiz_result:result-1', 'child_1')?.learningStatus, 'completed');
+  assert.equal(learningTaskTargetExists(database, 'child_1', result.items[0]!.primaryLink!), true);
+});
+
 test('returns task source, links, and events without embedding original content', () => {
   const database = createDatabase();
   seedLegacyContent(database);

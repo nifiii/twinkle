@@ -10,7 +10,7 @@ import { parseLearningOwnerId } from './learningDomain.js';
 import { normalizeSubject } from '../utils/subject.js';
 
 type TextbookAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'video' | 'math_thinking' | 'assessment';
-type ChapterNode = { id: string; title: string; children?: ChapterNode[] };
+type ChapterNode = { id: string | number; title: string; children?: ChapterNode[] };
 type Book = { id: string; title: string; subject: string; grade: string | null; ownerId: string; status: string; mdPath: string | null; tableOfContents: string | null };
 
 export class TextbookTaskUnavailableError extends Error {
@@ -42,7 +42,12 @@ function bookFor(database: Database.Database, ownerId: string, bookId: unknown):
 function chaptersFor(book: Book, value: unknown): ChapterNode[] {
   if (!Array.isArray(value) || !value.length || value.some(id => typeof id !== 'string' || !id.trim())) throw new LearningTaskValidationError('source.chapterIds', '至少选择一个具体章节');
   const all = flatten(json<ChapterNode[]>(book.tableOfContents, []));
-  const selected = [...new Set(value.map(id => id.trim()))].map(id => all.find(chapter => chapter.id === id));
+  // Route parameters are always strings, while older parsed catalogs stored numeric IDs.
+  // Normalize only the comparison and returned task reference so catalog validation stays strict.
+  const selected = [...new Set(value.map(id => id.trim()))].map(id => {
+    const chapter = all.find(candidate => String(candidate.id) === id);
+    return chapter && { ...chapter, id: String(chapter.id) };
+  });
   if (selected.some(chapter => !chapter?.title?.trim())) throw new LearningTaskValidationError('source.chapterIds', '所选章节不在教材目录中');
   return selected as ChapterNode[];
 }
