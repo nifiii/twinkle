@@ -1,5 +1,24 @@
 export type WrongProblemRef = { source: 'scanned_item'; scannedItemId: string; problemIndex: number } | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
 
+export type TextbookTaskAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'video' | 'math_thinking' | 'assessment';
+
+export interface VideoResourceOption {
+  id: string;
+  title: string;
+  durationSeconds: number;
+  ageLabel: string;
+  embedUrl: string;
+}
+
+export interface ChapterAction {
+  action: TextbookTaskAction;
+  available: boolean;
+  reasonCode?: string;
+  resourceOptions?: VideoResourceOption[];
+  examModes?: Array<'textbook' | 'olympiad'>;
+  olympiadMaterials?: Array<{ id: string; title: string }>;
+}
+
 export type WrongProblemCandidate = WrongProblemRef & {
   subject: string;
   title: string;
@@ -31,6 +50,37 @@ export function createWrongReviewTask(input: { ownerId: string; userName: string
       requestKey: crypto.randomUUID(),
       taskType: 'wrong_review',
       source: { kind: 'wrong_problems', subject: input.subject, grade: input.grade, problems: input.problems },
+    }),
+  });
+}
+
+export function fetchChapterActions(input: { ownerId: string; bookId: string; chapterId: string }): Promise<ChapterAction[]> {
+  const query = new URLSearchParams({ ownerId: input.ownerId });
+  return request<ChapterAction[]>(`/api/assistant/books/${encodeURIComponent(input.bookId)}/chapters/${encodeURIComponent(input.chapterId)}/actions?${query}`);
+}
+
+export function createTextbookTask(input: {
+  ownerId: string;
+  userName: string;
+  taskType: TextbookTaskAction;
+  bookId: string;
+  chapterId: string;
+  options?: Record<string, string>;
+}) {
+  return request<{ id: string; title: string; generationStatus: string }>('/api/learning-tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ownerId: input.ownerId,
+      userName: input.userName,
+      requestKey: crypto.randomUUID(),
+      taskType: input.taskType,
+      source: {
+        kind: 'chapter',
+        bookId: input.bookId,
+        chapterIds: [input.chapterId],
+        options: input.options,
+      },
     }),
   });
 }

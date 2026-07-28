@@ -66,19 +66,22 @@ const VALID_RESOURCES_SUBS = new Set(['library', 'capture']);
 //   #dashboard
 //   #resources/<library|capture>   ← 资源页子 Tab
 //   #tutor/<courseware|wrong|quiz|history>/<...>   ← AI 课堂深链
-const parseHash = (): { tab: string; resourcesSub: string; tutorSubPath: string } => {
+const parseHash = (): { tab: string; resourcesSub: string; tutorSubPath: string; assistantSubPath: string } => {
   const raw = window.location.hash.slice(1);
   const [first, ...rest] = raw.split('/');
   const tab = first === 'learn' ? 'decommissioned' : (VALID_TABS.has(first) ? first : 'dashboard');
   let resourcesSub = '';
   let tutorSubPath = '';
+  let assistantSubPath = '';
   if (tab === 'resources') {
     const sub = rest[0] || 'library';
     resourcesSub = VALID_RESOURCES_SUBS.has(sub) ? sub : 'library';
   } else if (tab === 'tutor') {
     tutorSubPath = rest.join('/');
+  } else if (tab === 'assistant') {
+    assistantSubPath = rest[0] === 'textbook' ? 'textbook' : 'wrong';
   }
-  return { tab, resourcesSub, tutorSubPath };
+  return { tab, resourcesSub, tutorSubPath, assistantSubPath };
 };
 
 const getTabFromHash = (): string => parseHash().tab;
@@ -86,6 +89,7 @@ const getTabFromHash = (): string => parseHash().tab;
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(getTabFromHash);
   const [tutorSubPath, setTutorSubPath] = useState<string>(() => parseHash().tutorSubPath);
+  const [assistantSubPath, setAssistantSubPath] = useState<string>(() => parseHash().assistantSubPath || 'wrong');
   const [resourcesSub, setResourcesSub] = useState<string>(() => parseHash().resourcesSub || 'library');
   const [profiles, setProfiles] = useState<UserProfile[]>([FALLBACK_PROFILE]);
   const [currentUser, setCurrentUser] = useState<UserProfile>(FALLBACK_PROFILE);
@@ -105,6 +109,12 @@ const App: React.FC = () => {
       setTutorSubPath(subPath);
       setResourcesSub('library');
       window.history.pushState(null, '', `#${tab}/${subPath}`);
+    } else if (tab === 'assistant') {
+      const sub = subPath === 'textbook' ? 'textbook' : 'wrong';
+      setAssistantSubPath(sub);
+      setTutorSubPath('');
+      setResourcesSub('library');
+      window.history.pushState(null, '', `#assistant/${sub}`);
     } else if (tab === 'resources') {
       const sub = (subPath && VALID_RESOURCES_SUBS.has(subPath)) ? subPath : 'library';
       setResourcesSub(sub);
@@ -113,6 +123,7 @@ const App: React.FC = () => {
     } else {
       setTutorSubPath('');
       setResourcesSub('library');
+      setAssistantSubPath('wrong');
       window.history.pushState(null, '', `#${tab}`);
     }
   };
@@ -124,10 +135,11 @@ const App: React.FC = () => {
     }
 
     const onHashSync = () => {
-      const { tab, resourcesSub: rs, tutorSubPath: ts } = parseHash();
+      const { tab, resourcesSub: rs, tutorSubPath: ts, assistantSubPath: as } = parseHash();
       setActiveTab(tab);
       setTutorSubPath(ts);
       setResourcesSub(rs || 'library');
+      setAssistantSubPath(as || 'wrong');
     };
     window.addEventListener('popstate', onHashSync);
     window.addEventListener('hashchange', onHashSync);
@@ -383,7 +395,7 @@ const App: React.FC = () => {
         case 'tutor':
           return <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
         case 'assistant':
-          return <LearningAssistant currentUser={currentUser} onOpenClassroom={() => handleTabChange('tutor')} />;
+          return <LearningAssistant currentUser={currentUser} view={assistantSubPath === 'textbook' ? 'textbook' : 'wrong'} onViewChange={(view) => handleTabChange('assistant', view)} onOpenClassroom={() => handleTabChange('tutor')} />;
         case 'decommissioned':
           return <section aria-labelledby="decommissioned-title" className="mx-auto max-w-3xl py-16 text-center"><h1 id="decommissioned-title" className="text-2xl font-semibold text-cyber-text">页面已下线</h1><div className="mt-8 flex flex-wrap justify-center gap-3"><button type="button" onClick={() => handleTabChange('assistant')} className="min-h-11 border border-neon-blue/50 px-4 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">学习小助手</button><button type="button" onClick={() => handleTabChange('tutor')} className="min-h-11 border border-cyber-border px-4 text-sm font-medium text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue">智慧课堂</button></div></section>;
         default:
