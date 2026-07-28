@@ -38,11 +38,17 @@ const QuizResultDetail: React.FC<{ result: LegacyQuizResult; onBack: () => void 
 };
 
 const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, currentUser, onBack, onOpenTask }) => {
-  const link = task.primaryLink;
+  const links = task.links.filter(link => ['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(link.entityType));
+  const [activeLinkKey, setActiveLinkKey] = useState(() => task.primaryLink ? `${task.primaryLink.entityType}:${task.primaryLink.entityId}` : '');
+  const link = links.find(item => `${item.entityType}:${item.entityId}` === activeLinkKey) || task.primaryLink;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [content, setContent] = useState<Awaited<ReturnType<typeof fetchLegacyClassroomContent>> | null>(null);
   const [result, setResult] = useState<LegacyQuizResult | null>(null);
+
+  useEffect(() => {
+    setActiveLinkKey(task.primaryLink ? `${task.primaryLink.entityType}:${task.primaryLink.entityId}` : '');
+  }, [task.id, task.primaryLink?.entityId, task.primaryLink?.entityType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,9 +70,10 @@ const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, cur
   if (error) return <section className="mx-auto max-w-4xl space-y-5"><button type="button" onClick={onBack} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button><div role="alert" className="flex gap-2 border border-red-300 bg-red-50 p-4 text-sm text-red-800"><AlertCircle size={18} />{error}</div></section>;
   if (result) return <QuizResultDetail result={result} onBack={onBack} />;
   if (!content) return null;
-  if (content.type === 'quiz') return <QuizExam quizId={content.id} questions={content.content as Question[]} bookTitle={content.bookTitle} chapter={content.chapter} subject={content.subject} studentName={content.userName || currentUser.name} ownerId={currentUser.id} onClose={onBack} onSubmitted={(resultId) => onOpenTask(`legacy:quiz_result:${resultId}`)} />;
+  const contentSwitch = links.length > 1 ? <div role="tablist" aria-label="本任务学习内容" className="mx-auto flex max-w-4xl gap-2"><span className="self-center text-sm text-cyber-muted">本任务</span>{links.map(item => { const key = `${item.entityType}:${item.entityId}`; const label = item.role === 'explanation' ? '错题讲解' : item.role === 'practice' ? '针对性测验' : item.entityType === 'classroom_quiz' ? '随堂测验' : item.entityType === 'quiz_result' ? '测验记录' : '课件'; return <button key={key} type="button" role="tab" aria-selected={key === activeLinkKey} onClick={() => setActiveLinkKey(key)} className={`min-h-10 border px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue ${key === activeLinkKey ? 'border-neon-blue bg-neon-blue/10 text-neon-blue' : 'border-cyber-border text-cyber-muted hover:bg-white/5'}`}>{label}</button>; })}</div> : null;
+  if (content.type === 'quiz') return <section className="space-y-4">{contentSwitch}<QuizExam quizId={content.id} questions={content.content as Question[]} bookTitle={content.bookTitle} chapter={content.chapter} subject={content.subject} studentName={content.userName || currentUser.name} ownerId={currentUser.id} onClose={onBack} onSubmitted={(resultId) => onOpenTask(`legacy:quiz_result:${resultId}`)} /></section>;
   const sections = content.content as LessonSection[];
-  return <section className="mx-auto max-w-4xl space-y-5" aria-labelledby="legacy-courseware-title"><button type="button" onClick={onBack} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button><header className="border border-cyber-border bg-white p-5"><p className="text-sm text-neon-blue">课件学习</p><h1 id="legacy-courseware-title" className="mt-1 text-xl font-semibold text-cyber-text">《{content.bookTitle}》· {content.chapter}</h1><p className="mt-2 text-sm text-cyber-muted">{content.subject} · {content.userName || currentUser.name}</p></header><CoursewareNarrator sections={sections} coursewareId={content.id} /><div className="space-y-4">{sections.map((section, index) => <SectionCard key={section.index || index} section={section} isLast={index === sections.length - 1} />)}</div></section>;
+  return <section className="mx-auto max-w-4xl space-y-5" aria-labelledby="legacy-courseware-title"><button type="button" onClick={onBack} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button>{contentSwitch}<header className="border border-cyber-border bg-white p-5"><p className="text-sm text-neon-blue">课件学习</p><h1 id="legacy-courseware-title" className="mt-1 text-xl font-semibold text-cyber-text">《{content.bookTitle}》· {content.chapter}</h1><p className="mt-2 text-sm text-cyber-muted">{content.subject} · {content.userName || currentUser.name}</p></header><CoursewareNarrator sections={sections} coursewareId={content.id} /><div className="space-y-4">{sections.map((section, index) => <SectionCard key={section.index || index} section={section} isLast={index === sections.length - 1} />)}</div></section>;
 };
 
 export default ClassroomLegacyDetail;
