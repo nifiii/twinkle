@@ -25,6 +25,7 @@ export interface ClassroomTaskDetail extends ClassroomTaskSummary {
   errorCode: string | null;
   errorMessage: string | null;
   links: ClassroomTaskLink[];
+  videoResource: { id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string } | null;
 }
 
 export interface ClassroomTaskPage {

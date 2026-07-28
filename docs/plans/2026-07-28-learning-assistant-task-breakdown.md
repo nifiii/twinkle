@@ -2,6 +2,8 @@
 
 状态：已确认（Gate 5）
 
+实施状态（2026-07-28）：T-010、T-011 已完成；发布验收证据见 [发布证据](../release/2026-07-28-learning-assistant-release-evidence.md)。
+
 上游：BR-001 至 BR-020、US-001 至 US-010、AC-001 至 AC-016，以及 Gate 3、Gate 4 文档。
 
 ## 1. 背景

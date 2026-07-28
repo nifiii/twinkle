@@ -82,3 +82,27 @@ test('returns task source, links, and events without embedding original content'
   database.prepare('DELETE FROM classroom_items WHERE id = ?').run('classroom-1');
   assert.equal(learningTaskTargetExists(database, 'child_1', detail!.primaryLink!), false);
 });
+
+test('marks a previously approved video task unavailable when its reviewed resource changes state', () => {
+  const database = createDatabase();
+  seedLegacyContent(database);
+  database.prepare(`INSERT INTO external_resources
+    (id, title, subject, grade, knowledgeTagsJson, url, sourceName, durationSeconds, ageLabel, reviewedAt, status, linkHealthStatus, embedStatus, embedUrl, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run('video-1', '大数的认识动画', '数学', '四年级', '[]', 'https://video.example/watch', '示例平台', 120, '适合四年级', 1000, 'approved', 'healthy', 'allowed', 'https://video.example/embed/1', 1000, 1000);
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'video-task', taskType: 'video', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '第一单元·视频', bookId: 'book-1', chapterIds: ['chapter-1'],
+  }, 1500);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1550 });
+  completeLearningTask(database, task.id, [{ entityType: 'external_resource', entityId: 'video-1', role: 'resource' }], 1600);
+
+  assert.equal(getClassroomTask(database, task.id, 'child_1')?.videoResource?.embedUrl, 'https://video.example/embed/1');
+  database.prepare("UPDATE external_resources SET linkHealthStatus = 'blocked' WHERE id = ?").run('video-1');
+  const detail = getClassroomTask(database, task.id, 'child_1');
+
+  assert.equal(detail?.generationStatus, 'resource_unavailable');
+  assert.equal(detail?.errorCode, 'resource_unavailable');
+  assert.equal(detail?.videoResource, null);
+  assert.equal(learningTaskTargetExists(database, 'child_1', detail!.primaryLink!), false);
+});

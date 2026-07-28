@@ -30,6 +30,14 @@ interface TaskEvent {
   createdAt: number;
 }
 
+interface ApprovedVideoResource {
+  id: string;
+  title: string;
+  durationSeconds: number;
+  ageLabel: string;
+  embedUrl: string;
+}
+
 export interface ClassroomTaskSummary {
   id: string;
   source: 'task' | 'legacy';
@@ -57,6 +65,7 @@ export interface ClassroomTaskDetail extends ClassroomTaskSummary {
   events: TaskEvent[];
   errorCode: string | null;
   errorMessage: string | null;
+  videoResource: ApprovedVideoResource | null;
 }
 
 export interface ClassroomTaskFilters {
@@ -114,9 +123,22 @@ function selectPrimaryLink(links: TaskLink[]): TaskLink | null {
   return [...links].sort((left, right) => PRIMARY_LINK_ORDER.indexOf(left.role) - PRIMARY_LINK_ORDER.indexOf(right.role))[0] || null;
 }
 
+function approvedVideoResource(database: Database.Database, resourceId: string): ApprovedVideoResource | null {
+  return database.prepare(`
+    SELECT id, title, durationSeconds, ageLabel, embedUrl
+    FROM external_resources
+    WHERE id = ? AND status = 'approved' AND reviewedAt IS NOT NULL
+      AND linkHealthStatus = 'healthy' AND embedStatus = 'allowed'
+      AND title IS NOT NULL AND durationSeconds > 0 AND ageLabel IS NOT NULL AND embedUrl IS NOT NULL
+  `).get(resourceId) as ApprovedVideoResource | undefined || null;
+}
+
 function toTaskSummary(database: Database.Database, task: LearningTaskRecord): ClassroomTaskSummary {
   const book = findBook(database, task.ownerId, task.bookId);
   const links = readTaskLinks(database, task.id);
+  const primaryLink = selectPrimaryLink(links);
+  const resourceUnavailable = primaryLink?.entityType === 'external_resource'
+    && !approvedVideoResource(database, primaryLink.entityId);
   return {
     id: task.id,
     source: 'task',
@@ -126,11 +148,11 @@ function toTaskSummary(database: Database.Database, task: LearningTaskRecord): C
     grade: task.grade,
     book: book ? { id: book.id, title: book.title } : null,
     chapterTitles: chapterTitles(book, task.chapterIds),
-    generationStatus: task.generationStatus,
+    generationStatus: resourceUnavailable ? 'resource_unavailable' : task.generationStatus,
     learningStatus: task.learningStatus,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
-    primaryLink: selectPrimaryLink(links),
+    primaryLink,
   };
 }
 
@@ -286,6 +308,7 @@ function legacyDetail(database: Database.Database, ownerId: string, taskId: stri
     events: [],
     errorCode: null,
     errorMessage: null,
+    videoResource: null,
   };
 }
 
@@ -301,7 +324,7 @@ export function learningTaskTargetExists(database: Database.Database, ownerId: u
   const target = tableByEntityType[link.entityType];
   if (!target) return false;
   if (target.table === 'external_resources') {
-    return Boolean(database.prepare('SELECT id FROM external_resources WHERE id = ?').get(link.entityId));
+    return Boolean(approvedVideoResource(database, link.entityId));
   }
   const row = target.type
     ? database.prepare(`SELECT id FROM ${target.table} WHERE id = ? AND ownerId = ? AND type = ?`).get(link.entityId, owner, target.type)
@@ -316,6 +339,10 @@ export function getClassroomTask(database: Database.Database, taskId: string, ow
   if (!task) return null;
   const summary = toTaskSummary(database, task);
   const links = readTaskLinks(database, task.id);
+  const videoResource = summary.primaryLink?.entityType === 'external_resource'
+    ? approvedVideoResource(database, summary.primaryLink.entityId)
+    : null;
+  const resourceUnavailable = summary.primaryLink?.entityType === 'external_resource' && !videoResource;
   const events = database.prepare(`
     SELECT eventType, detailJson, createdAt FROM learning_task_events
     WHERE taskId = ? ORDER BY createdAt DESC LIMIT 10
@@ -330,7 +357,8 @@ export function getClassroomTask(database: Database.Database, taskId: string, ow
       : { sourceType: 'wrong_problems', wrongProblemRefs: task.wrongProblemRefs },
     links,
     events,
-    errorCode: task.errorCode,
-    errorMessage: task.errorMessage,
+    errorCode: resourceUnavailable ? 'resource_unavailable' : task.errorCode,
+    errorMessage: resourceUnavailable ? '该视频资源已失效或不再允许嵌入。' : task.errorMessage,
+    videoResource,
   };
 }

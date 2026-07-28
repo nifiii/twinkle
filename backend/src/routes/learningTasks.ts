@@ -73,7 +73,7 @@ router.get('/learning-tasks/:id', (req: Request, res: Response) => {
       }
       return res.status(404).json({ success: false, errorCode: 'task_not_found', error: '学习任务不存在' });
     }
-    if (task.primaryLink && !learningTaskTargetExists(db, req.query.ownerId, task.primaryLink)) {
+    if (task.primaryLink && task.primaryLink.entityType !== 'external_resource' && !learningTaskTargetExists(db, req.query.ownerId, task.primaryLink)) {
       return res.status(410).json({ success: false, errorCode: 'task_target_missing', error: '关联学习内容已不存在' });
     }
     return res.json({ success: true, data: task });

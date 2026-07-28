@@ -8,6 +8,10 @@ import { AIClassroom } from './components/AIClassroom';
 import ClassroomTaskHub from './components/ClassroomTaskHub';
 import ProfilePage from './components/ProfilePage';
 import LearningAssistant from './components/LearningAssistant';
+import LearningPackage from './components/LearningPackage';
+import PaperExam from './components/PaperExam';
+import PaperPreview from './components/PaperPreview';
+import AttemptDiagnosis from './components/AttemptDiagnosis';
 import { ScannedItem, UserProfile, EBook, KnowledgeStatus, ProcessingStatus } from './types';
 import { fetchBooks, fetchScannedItems, deleteScannedItem } from './services/apiService';
 import { fetchUsers, updateUser, createUser, deleteUser } from './services/userService';
@@ -394,8 +398,18 @@ const App: React.FC = () => {
             />
           );
         case 'tutor':
+          if (tutorSubPath.startsWith('package/')) {
+            const packageId = decodeURIComponent(tutorSubPath.slice('package/'.length));
+            return <LearningPackage id={packageId} currentUser={currentUser} onBack={() => handleTabChange('tutor')} />;
+          }
+          if (tutorSubPath.startsWith('paper/')) {
+            const [, paperId, view, attemptId] = tutorSubPath.split('/');
+            if (view === 'preview') return <PaperPreview paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
+            if (view === 'diagnosis' && attemptId) return <AttemptDiagnosis attemptId={decodeURIComponent(attemptId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
+            return <PaperExam paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} onPreview={() => handleTabChange('tutor', `paper/${paperId}/preview`)} onSubmitted={(attemptId) => handleTabChange('tutor', `paper/${paperId}/diagnosis/${attemptId}`)} />;
+          }
           return tutorSubPath === '' || tutorSubPath.startsWith('task/')
-            ? <ClassroomTaskHub currentUser={currentUser} subPath={tutorSubPath} onOpenHub={() => handleTabChange('tutor')} onOpenLegacy={(subPath) => handleTabChange('tutor', subPath)} />
+            ? <ClassroomTaskHub currentUser={currentUser} books={filteredBooks} subPath={tutorSubPath} onOpenHub={() => handleTabChange('tutor')} onOpenLegacy={(subPath) => handleTabChange('tutor', subPath)} />
             : <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
         case 'assistant':
           return <LearningAssistant currentUser={currentUser} view={assistantSubPath === 'textbook' ? 'textbook' : 'wrong'} onViewChange={(view) => handleTabChange('assistant', view)} onOpenClassroom={() => handleTabChange('tutor')} />;
