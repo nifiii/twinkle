@@ -343,10 +343,10 @@ const App: React.FC = () => {
 
   // 全局错误提示 UI
   const ErrorToast = () => errorMsg ? (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-red-600 text-white px-6 py-3 rounded-2xl shadow-2xl animate-slide-up flex items-center space-x-3 border-2 border-red-400">
+    <div role="alert" aria-live="assertive" className="fixed top-20 left-1/2 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center space-x-3 rounded-2xl border-2 border-red-400 bg-red-600 px-6 py-3 text-white shadow-2xl animate-slide-up">
       <i className="fa-solid fa-triangle-exclamation"></i>
-      <span className="font-bold text-sm">{errorMsg}</span>
-      <button onClick={() => setErrorMsg(null)} className="ml-2 opacity-70 hover:opacity-100">
+      <span className="min-w-0 break-words text-sm font-bold">{errorMsg}</span>
+      <button type="button" aria-label="关闭错误提示" onClick={() => setErrorMsg(null)} className="ml-2 shrink-0 opacity-70 hover:opacity-100">
         <i className="fa-solid fa-xmark"></i>
       </button>
     </div>
@@ -359,7 +359,9 @@ const App: React.FC = () => {
       animate={{ y: 0, opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-      className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] bg-gradient-to-r from-sky-400 to-mint-400 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2"
+      role="status"
+      aria-live="polite"
+      className="fixed top-20 left-1/2 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-2xl bg-gradient-to-r from-sky-400 to-mint-400 px-6 py-3 text-white shadow-2xl"
     >
       <span className="text-sm font-bold">{switchToast}</span>
     </motion.div>
@@ -443,8 +445,6 @@ const App: React.FC = () => {
       onDeleteUser={handleDeleteUser}
       onOpenLiveTutor={() => setIsLiveTutorOpen(true)}
       >
-        <ErrorToast />
-        <SwitchToast />
         <AnimatePresence mode="wait">
         {editingProfile ? (
           <motion.div
@@ -475,6 +475,8 @@ const App: React.FC = () => {
         )}
         </AnimatePresence>
       </Layout>
+      <ErrorToast />
+      <SwitchToast />
       {isLiveTutorOpen && (
         <LiveTutor currentUser={currentUser} onClose={() => setIsLiveTutorOpen(false)} />
       )}
