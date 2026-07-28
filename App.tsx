@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import ResourcesShell, { ResourcesSub } from './components/ResourcesShell';
 import { AIClassroom } from './components/AIClassroom';
 import ProfilePage from './components/ProfilePage';
+import LearningAssistant from './components/LearningAssistant';
 import { ScannedItem, UserProfile, EBook, KnowledgeStatus, ProcessingStatus } from './types';
 import { fetchBooks, fetchScannedItems, deleteScannedItem } from './services/apiService';
 import { fetchUsers, updateUser, createUser, deleteUser } from './services/userService';
@@ -382,7 +383,7 @@ const App: React.FC = () => {
         case 'tutor':
           return <AIClassroom currentUser={currentUser} subPath={tutorSubPath} />;
         case 'assistant':
-          return <section aria-labelledby="assistant-title" className="mx-auto max-w-5xl py-10"><h1 id="assistant-title" className="text-2xl font-semibold text-cyber-text">学习小助手</h1></section>;
+          return <LearningAssistant currentUser={currentUser} onOpenClassroom={() => handleTabChange('tutor')} />;
         case 'decommissioned':
           return <section aria-labelledby="decommissioned-title" className="mx-auto max-w-3xl py-16 text-center"><h1 id="decommissioned-title" className="text-2xl font-semibold text-cyber-text">页面已下线</h1><div className="mt-8 flex flex-wrap justify-center gap-3"><button type="button" onClick={() => handleTabChange('assistant')} className="min-h-11 border border-neon-blue/50 px-4 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">学习小助手</button><button type="button" onClick={() => handleTabChange('tutor')} className="min-h-11 border border-cyber-border px-4 text-sm font-medium text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue">智慧课堂</button></div></section>;
         default:
