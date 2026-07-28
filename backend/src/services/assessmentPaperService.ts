@@ -138,9 +138,28 @@ async function generateOriginalPaper(input: Record<string, unknown>): Promise<un
   const apiKey = process.env.ARK_API_KEY; const model = process.env.ARK_MODEL_ID;
   if (!apiKey || !model) throw new Error('原创试卷生成服务未配置');
   const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3' });
-  const response = await client.chat.completions.create({ model, temperature: 0.25, messages: [{ role: 'system', content: '只输出符合请求结构的 JSON。' }, { role: 'user', content: originalPaperPrompt(input) }] });
-  const raw = response.choices[0]?.message?.content || '{}';
-  return JSON.parse(raw.replace(/^```json\s*|\s*```$/g, '').trim());
+  const prompt = originalPaperPrompt(input);
+  const request = (retry: boolean) => client.chat.completions.create({
+    model,
+    temperature: 0.25,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: '只输出符合请求结构的合法 JSON 对象。' },
+      { role: 'user', content: retry ? `${prompt}\n前一份输出无法解析为 JSON。请从头生成完整、合法的 JSON 对象，不要解释。` : prompt },
+    ],
+  } as any);
+  const parse = (response: Awaited<ReturnType<typeof request>>) => JSON.parse((response.choices[0]?.message?.content || '{}').replace(/^```json\s*|\s*```$/g, '').trim());
+  try {
+    return parse(await request(false));
+  } catch (error) {
+    // The model can occasionally truncate or escape a string incorrectly. Retry once so a
+    // transient malformed response does not turn an otherwise valid learning task into a failure.
+    try {
+      return parse(await request(true));
+    } catch {
+      throw error;
+    }
+  }
 }
 
 function normalizeEssayRubric(value: unknown, score: number, answer: string) {
