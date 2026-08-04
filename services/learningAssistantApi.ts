@@ -1,4 +1,4 @@
-export type WrongProblemRef = { source: 'scanned_item'; scannedItemId: string; problemIndex: number } | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
+export type WrongProblemRef = { source: 'scanned_item'; scannedItemId: string; problemIndex: number } | { source: 'quiz_result'; quizResultId: string; problemIndex: number } | { source: 'paper_attempt'; paperAttemptId: string; problemIndex: number };
 
 export type TextbookTaskAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'math_thinking' | 'assessment';
 

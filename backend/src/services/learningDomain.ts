@@ -206,6 +206,7 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       paperId TEXT NOT NULL,
       ownerId TEXT NOT NULL,
       answersJson TEXT NOT NULL,
+      reviewSnapshotJson TEXT,
       status TEXT NOT NULL,
       diagnosticScore REAL,
       submittedAt INTEGER,
@@ -246,6 +247,17 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_review_events_attempt_question
       ON review_events(attemptId, questionId, createdAt DESC);
 
+    CREATE TABLE IF NOT EXISTS answer_review_flags (
+      ownerId TEXT NOT NULL,
+      sourceType TEXT NOT NULL,
+      sourceId TEXT NOT NULL,
+      questionId TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (ownerId, sourceType, sourceId, questionId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_answer_review_flags_source
+      ON answer_review_flags(ownerId, sourceType, sourceId);
+
     CREATE TABLE IF NOT EXISTS export_jobs (
       id TEXT PRIMARY KEY,
       paperId TEXT NOT NULL,
@@ -259,6 +271,11 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_export_jobs_paper_variant
       ON export_jobs(paperId, variant, createdAt DESC);
   `);
+
+  const attemptColumns = db.prepare('PRAGMA table_info(paper_attempts)').all() as Array<{ name: string }>;
+  if (!attemptColumns.some(column => column.name === 'reviewSnapshotJson')) {
+    db.exec('ALTER TABLE paper_attempts ADD COLUMN reviewSnapshotJson TEXT');
+  }
 
   // Existing local databases may have the T-001 base table without the
   // externally visible resource metadata. Additive columns keep old rows

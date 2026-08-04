@@ -30,7 +30,7 @@ Dependencies：无。
 
 ### T-AR-002 需巩固标记与统一错题本来源
 
-Outcome：学生/家长主动标记题目后，该题作为课堂作答错题进入统一错题本、错题讲解与专项测验；取消后退出。
+Outcome：学生/家长主动标记题目后，该题作为课堂测验 `quiz_result` 或试卷 `paper_attempt` 错题进入统一错题本、错题讲解与专项测验；取消后退出。
 
 Inputs：BR-AR-004、BR-AR-005；US-AR-002、US-AR-004；AC-AR-003、AC-AR-004；需巩固 API 契约。
 

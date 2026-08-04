@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { UserProfile } from '../types';
 import { Card, CardHeader } from './ui';
 import {
-  BookOpen, AlertCircle, FileText, Target, TrendingUp,
+  BookOpen, AlertCircle, FileText,
   ChevronRight, Loader2, Library
 } from 'lucide-react';
 
@@ -44,22 +44,11 @@ interface OverviewData {
     pendingCoursewareCount: number;
     pendingWrongProblemCount: number;
     pendingQuizCount: number;
-    masteryRate: number;
   };
-  trendBySubject: Record<string, Array<{ quizId: string; gradedAt: number; percentage: number }>>;
   pendingCourseware: PendingCourseware[];
   pendingWrongProblems: PendingWrongProblem[];
   pendingQuizzes: PendingQuiz[];
 }
-
-// 趋势图固定 4 条线，与后端 TRACKED_SUBJECTS 一致
-const SUBJECT_COLORS: Record<string, string> = {
-  '语文': '#EF4444',
-  '数学': '#3B82F6',
-  '英语': '#10B981',
-  '科学': '#8B5CF6',
-};
-const TRACKED_SUBJECTS = ['语文', '数学', '英语', '科学'];
 
 const formatDate = (ts: number): string =>
   new Date(ts).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
@@ -170,8 +159,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, onTabChange }) => {
         <>
           <StatCards stats={data.stats} onJump={onTabChange} />
 
-          <TrendCard trendBySubject={data.trendBySubject} />
-
           <PendingCoursewareList items={data.pendingCourseware} onTabChange={onTabChange} />
 
           <PendingWrongList items={data.pendingWrongProblems} onTabChange={onTabChange} />
@@ -180,8 +167,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, onTabChange }) => {
 
           {data.stats.pendingCoursewareCount === 0 &&
             data.stats.pendingWrongProblemCount === 0 &&
-            data.stats.pendingQuizCount === 0 &&
-            Object.values(data.trendBySubject).every(arr => arr.length === 0) && (
+            data.stats.pendingQuizCount === 0 && (
               <EmptyState onTabChange={onTabChange} />
             )}
         </>
@@ -196,12 +182,10 @@ const StatCards: React.FC<{
   stats: OverviewData['stats'];
   onJump: (tab: string, subPath?: string) => void;
 }> = ({ stats, onJump }) => {
-  const { pendingCoursewareCount, pendingWrongProblemCount, pendingQuizCount, masteryRate } = stats;
-  const masteryColor = masteryRate >= 80 ? '#15803D' : masteryRate >= 60 ? '#B45309' : '#B91C1C';
-  const masteryBg = masteryRate >= 80 ? 'rgba(21,128,61,0.12)' : masteryRate >= 60 ? 'rgba(180,83,9,0.12)' : 'rgba(185,28,28,0.10)';
+  const { pendingCoursewareCount, pendingWrongProblemCount, pendingQuizCount } = stats;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
       <Card hover className="p-5" onClick={() => onJump('tutor')}>
         <div className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center bg-neon-blue/15 shadow-glow-sm">
           <BookOpen className="w-5 h-5 text-neon-blue" />
@@ -226,100 +210,7 @@ const StatCards: React.FC<{
         <div className="text-xs text-cyber-muted">待完成测验</div>
       </Card>
 
-      <Card hover className="p-5" onClick={() => onJump('tutor')}>
-        <div
-          className="w-11 h-11 rounded-xl mb-3 flex items-center justify-center"
-          style={{ backgroundColor: masteryBg }}
-        >
-          <Target className="w-5 h-5" style={{ color: masteryColor }} />
-        </div>
-        <div className="text-3xl font-bold mb-0.5 tracking-tight" style={{ color: masteryColor }}>
-          {masteryRate}%
-        </div>
-        <div className="text-xs text-cyber-muted">最近 10 次掌握率</div>
-      </Card>
     </div>
-  );
-};
-
-const TrendCard: React.FC<{
-  trendBySubject: OverviewData['trendBySubject'];
-}> = ({ trendBySubject }) => {
-  // 是否完全无数据
-  const hasAny = TRACKED_SUBJECTS.some(s => (trendBySubject[s] || []).length > 0);
-
-  return (
-    <Card>
-      <CardHeader title="学科掌握率趋势" icon={<TrendingUp size={20} />} />
-      {!hasAny ? (
-        <div className="text-center py-10 text-cyber-muted text-sm">
-          完成测验后将在此展示掌握率走势
-        </div>
-      ) : (
-        <TrendChart trendBySubject={trendBySubject} />
-      )}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-3 text-xs">
-        {TRACKED_SUBJECTS.map(s => (
-          <div key={s} className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-full" style={{ background: SUBJECT_COLORS[s], boxShadow: `0 0 8px ${SUBJECT_COLORS[s]}` }} />
-            <span className="text-cyber-text">{s}</span>
-            <span className="text-cyber-muted">({(trendBySubject[s] || []).length})</span>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-};
-
-// 简易折线图（SVG），固定高度，0-100% 纵轴，按学科着色
-const TrendChart: React.FC<{ trendBySubject: OverviewData['trendBySubject'] }> = ({ trendBySubject }) => {
-  const W = 600;
-  const H = 180;
-  const PAD_X = 30;
-  const PAD_Y = 20;
-  const innerW = W - PAD_X * 2;
-  const innerH = H - PAD_Y * 2;
-
-  // 横向取最多数据点的学科长度
-  const maxLen = Math.max(1, ...TRACKED_SUBJECTS.map(s => (trendBySubject[s] || []).length));
-
-  const xAt = (i: number) => maxLen <= 1 ? PAD_X + innerW / 2 : PAD_X + (i / (maxLen - 1)) * innerW;
-  const yAt = (pct: number) => PAD_Y + (1 - pct / 100) * innerH;
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-44">
-      {/* 网格线 */}
-      {[0, 25, 50, 75, 100].map(v => (
-        <g key={v}>
-          <line
-            x1={PAD_X} x2={W - PAD_X}
-            y1={yAt(v)} y2={yAt(v)}
-            stroke="rgba(92,102,85,0.20)"
-            strokeDasharray={v === 0 || v === 100 ? '' : '3 3'}
-            strokeWidth={1}
-          />
-          <text x={PAD_X - 6} y={yAt(v) + 3} textAnchor="end" fontSize="9" fill="#5C6655">{v}</text>
-        </g>
-      ))}
-
-      {/* 各学科折线 */}
-      {TRACKED_SUBJECTS.map(subject => {
-        const points = trendBySubject[subject] || [];
-        if (points.length === 0) return null;
-        const color = SUBJECT_COLORS[subject];
-        const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(i)},${yAt(p.percentage)}`).join(' ');
-        return (
-          <g key={subject}>
-            <path d={path} stroke={color} strokeWidth={2} fill="none" />
-            {points.map((p, i) => (
-              <circle key={i} cx={xAt(i)} cy={yAt(p.percentage)} r={3} fill={color}>
-                <title>{`${subject} · ${formatDate(p.gradedAt)} · ${p.percentage}%`}</title>
-              </circle>
-            ))}
-          </g>
-        );
-      })}
-    </svg>
   );
 };
 

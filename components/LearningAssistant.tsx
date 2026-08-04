@@ -4,7 +4,7 @@ import { EBook, IndexStatus, UserProfile } from '../types';
 import { fetchBooks } from '../services/apiService';
 import { ChapterAction, createOlympiadAssessmentTask, createTextbookTask, createWrongReviewTask, fetchChapterActions, fetchOlympiadMaterials, fetchWrongProblemCandidates, OlympiadMaterialOption, TextbookTaskAction, WrongProblemCandidate } from '../services/learningAssistantApi';
 
-const refKey = (item: WrongProblemCandidate) => `${item.source}:${item.source === 'scanned_item' ? item.scannedItemId : item.quizResultId}:${item.problemIndex}`;
+const refKey = (item: WrongProblemCandidate) => `${item.source}:${item.source === 'scanned_item' ? item.scannedItemId : item.source === 'quiz_result' ? item.quizResultId : item.paperAttemptId}:${item.problemIndex}`;
 
 interface LearningAssistantProps {
   currentUser: UserProfile;
@@ -145,7 +145,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     if (!selectedItems.length || creating) return;
     setCreating(true); setError(''); setCreatedTitle(''); setCreatedTaskId('');
     try {
-      const task = await createWrongReviewTask({ ownerId: currentUser.id, userName: currentUser.name, grade: currentUser.grade, subject, problems: selectedItems.map(item => item.source === 'scanned_item' ? { source: item.source, scannedItemId: item.scannedItemId, problemIndex: item.problemIndex } : { source: item.source, quizResultId: item.quizResultId, problemIndex: item.problemIndex }) });
+      const task = await createWrongReviewTask({ ownerId: currentUser.id, userName: currentUser.name, grade: currentUser.grade, subject, problems: selectedItems.map(item => item.source === 'scanned_item' ? { source: item.source, scannedItemId: item.scannedItemId, problemIndex: item.problemIndex } : item.source === 'quiz_result' ? { source: item.source, quizResultId: item.quizResultId, problemIndex: item.problemIndex } : { source: item.source, paperAttemptId: item.paperAttemptId, problemIndex: item.problemIndex }) });
       setCreatedTitle(task.title); setCreatedTaskId(task.id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
     finally { setCreating(false); }

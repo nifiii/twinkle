@@ -12,12 +12,14 @@ function createDatabase(): Database.Database {
     CREATE TABLE quiz_results (id TEXT PRIMARY KEY, subject TEXT, chapter TEXT, ownerId TEXT, resultsJson TEXT, status TEXT, createdAt INTEGER);
     CREATE TABLE classroom_items (id TEXT PRIMARY KEY, type TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, userName TEXT, contentJson TEXT, slideCount INTEGER, questionCount INTEGER, source TEXT, sourceProblemId TEXT, createdAt INTEGER);
     CREATE TABLE wrong_problem_quiz_links (id TEXT PRIMARY KEY, scannedItemId TEXT, problemIndex INTEGER, ownerId TEXT, coursewareId TEXT, quizId TEXT, createdAt INTEGER);
+    CREATE TABLE books (id TEXT PRIMARY KEY, ownerId TEXT, subject TEXT, tableOfContents TEXT);
   `);
   initLearningDomainDatabase(database);
   database.prepare(`INSERT INTO scanned_items VALUES (?, 'wrong_problem', '数学', 'child_1', ?, ?)`)
     .run('scan-1', JSON.stringify([{ content: '12 除以 3 等于多少？', answer: '4', studentAnswer: '3', knowledgePoints: ['除法'] }]), 1000);
-  database.prepare(`INSERT INTO quiz_results VALUES (?, '数学', '第一单元', 'child_1', ?, 'completed', ?)`)
-    .run('result-1', JSON.stringify([{ question: '300 + 20 等于多少？', correctAnswer: '320', studentAnswer: '302', isCorrect: false, explanation: '按位相加' }]), 2000);
+  database.prepare(`INSERT INTO quiz_results VALUES (?, '数学', '第一单元', 'child_1', ?, 'submitted', ?)`)
+    .run('result-1', JSON.stringify([{ id: 'q1', question: '300 + 20 等于多少？', correctAnswer: '320', studentAnswer: '302', explanation: '按位相加' }]), 2000);
+  database.prepare(`INSERT INTO answer_review_flags VALUES ('child_1', 'quiz_result', 'result-1', 'q1', 2000)`).run();
   return database;
 }
 

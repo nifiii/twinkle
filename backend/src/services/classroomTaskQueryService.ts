@@ -176,11 +176,11 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
   }>;
   const quizResults = hasTable(database, 'quiz_results')
     ? database.prepare(`
-      SELECT id, quizId, bookTitle, chapter, subject, correctCount, total, percentage, status, createdAt
+      SELECT id, quizId, bookTitle, chapter, subject, status, createdAt
       FROM quiz_results WHERE ownerId = ?
     `).all(ownerId) as Array<{
       id: string; quizId: string; bookTitle: string; chapter: string; subject: string;
-      correctCount: number; total: number; percentage: number; status: string; createdAt: number;
+      status: string; createdAt: number;
     }>
     : [];
 

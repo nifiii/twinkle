@@ -1,4 +1,4 @@
-export type UnifiedWrongBookSource = 'all' | 'scanned_item' | 'quiz_result';
+export type UnifiedWrongBookSource = 'all' | 'scanned_item' | 'quiz_result' | 'paper_attempt';
 
 export interface UnifiedWrongBookItem {
   id: string;
@@ -8,7 +8,7 @@ export interface UnifiedWrongBookItem {
   contentExcerpt: string;
   knowledgePoints: string[];
   createdAt: number;
-  detailTarget: { kind: 'scanned_item' | 'quiz_result'; id: string; problemIndex: number };
+  detailTarget: { kind: 'scanned_item' | 'quiz_result' | 'paper_attempt'; id: string; problemIndex: number };
   capabilities: { view: true; edit: boolean; delete: boolean };
 }
 

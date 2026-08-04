@@ -60,13 +60,9 @@ export interface LegacyQuizResult {
   subject: string;
   ownerId: string;
   userName: string;
-  correctCount: number;
-  total: number;
-  percentage: number;
-  suggestions: string;
-  status: 'grading' | 'completed' | 'failed';
-  createdAt: number;
-  results: Array<{ id: string; type: string; question: string; studentAnswer: string; correctAnswer: string; isCorrect: boolean | null; explanation: string }>;
+  status: 'submitted';
+  submittedAt: number | null;
+  items: Array<{ questionId: string; type: string; question: string; studentAnswer: string; referenceAnswer: string; explanation: string; needsReinforcement: boolean }>;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -111,17 +107,17 @@ export function fetchLegacyClassroomContent(id: string, ownerId?: string): Promi
   return request<LegacyClassroomContent>(`/api/classroom/${encodeURIComponent(id)}${query}`);
 }
 
-export function fetchLegacyQuizResult(id: string): Promise<LegacyQuizResult> {
-  return request<LegacyQuizResult>(`/api/quiz-results/${encodeURIComponent(id)}`);
+export function fetchLegacyQuizResult(id: string, ownerId: string): Promise<LegacyQuizResult> {
+  return request<LegacyQuizResult>(`/api/quiz-results/${encodeURIComponent(id)}?${new URLSearchParams({ ownerId })}`);
 }
 
-export async function overrideLegacyQuizResult(resultId: string, questionId: string, isCorrect: boolean): Promise<Pick<LegacyQuizResult, 'correctCount' | 'percentage'>> {
-  const response = await fetch(`/api/quiz-results/${encodeURIComponent(resultId)}/override`, {
-    method: 'PATCH',
+export async function setLegacyQuizReinforcement(resultId: string, questionId: string, input: { ownerId: string; needsReinforcement: boolean }): Promise<{ questionId: string; needsReinforcement: boolean }> {
+  const response = await fetch(`/api/quiz-results/${encodeURIComponent(resultId)}/review-items/${encodeURIComponent(questionId)}/reinforcement`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questionId, isCorrect }),
+    body: JSON.stringify(input),
   });
   const body = await response.json();
-  if (!response.ok || !body.success) throw new Error(body.error || '改判失败，请稍后重试');
+  if (!response.ok || !body.success) throw new Error(body.error || '更新需巩固状态失败，请稍后重试');
   return body.data;
 }

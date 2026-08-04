@@ -3,12 +3,6 @@ import db from '../services/databaseService.js';
 
 const router = Router();
 
-// 概述页关心的 4 个学科（趋势图固定展示这 4 条线）
-const TRACKED_SUBJECTS = ['语文', '数学', '英语', '科学'];
-
-// 单次平均掌握率取最近 N 次测验
-const MASTERY_WINDOW = 10;
-
 /**
  * GET /api/dashboard/overview?ownerId=xxx
  * 概述页一次性聚合接口（5-7 条 SQL）。
@@ -17,7 +11,7 @@ const MASTERY_WINDOW = 10;
  * - "待学课件" = source='manual' 且 lastStudiedAt IS NULL（不含错题讲解）
  * - "待订正错题" = scanned_items.type='wrong_problem' 中尚未生成讲解+测验的题目数
  * - "待完成测验" = classroom_items.type='quiz' 仍存在的条目（提交答卷会删除）
- * - "掌握率" = quiz_results 最近 N 次的平均百分比（status='completed'）
+ * - 作答回顾不进行系统评分，因此不计算掌握率或成绩趋势
  */
 router.get('/dashboard/overview', (req: Request, res: Response) => {
   const { ownerId } = req.query;
@@ -106,36 +100,6 @@ router.get('/dashboard/overview', (req: Request, res: Response) => {
       });
     }
 
-    // 4. 掌握率（最近 N 次完成的测验平均百分比）
-    const recentResults = db.prepare(`
-      SELECT percentage FROM quiz_results
-      WHERE ownerId = ? AND status = 'completed'
-      ORDER BY COALESCE(gradedAt, createdAt) DESC
-      LIMIT ?
-    `).all(ownerId, MASTERY_WINDOW) as any[];
-    const masteryRate = recentResults.length > 0
-      ? Math.round(recentResults.reduce((a, r) => a + (r.percentage || 0), 0) / recentResults.length)
-      : 0;
-
-    // 5. 学科趋势（语/数/英/科 各最近 10 次）
-    const trendBySubject: Record<string, Array<{ quizId: string; gradedAt: number; percentage: number }>> = {};
-    const trendStmt = db.prepare(`
-      SELECT id, quizId, percentage, gradedAt, createdAt
-      FROM quiz_results
-      WHERE ownerId = ? AND status = 'completed' AND subject = ?
-      ORDER BY COALESCE(gradedAt, createdAt) DESC
-      LIMIT 10
-    `);
-    for (const subject of TRACKED_SUBJECTS) {
-      const rows = trendStmt.all(ownerId, subject) as any[];
-      // 时间正序便于前端绘图
-      trendBySubject[subject] = rows.reverse().map(r => ({
-        quizId: r.id,
-        gradedAt: r.gradedAt || r.createdAt,
-        percentage: r.percentage || 0,
-      }));
-    }
-
     return res.json({
       success: true,
       data: {
@@ -143,9 +107,7 @@ router.get('/dashboard/overview', (req: Request, res: Response) => {
           pendingCoursewareCount,
           pendingWrongProblemCount,
           pendingQuizCount,
-          masteryRate,
         },
-        trendBySubject,
         pendingCourseware,
         pendingWrongProblems,
         pendingQuizzes,

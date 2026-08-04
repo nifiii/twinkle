@@ -48,6 +48,7 @@ API 不再暴露评分、诊断、改判和成绩字段。
 - 仅允许当前作答的 ownerId。
 - 记录不存在返回 `404 review_not_found`；题号不属于该回顾返回 `400 review_item_invalid`。
 - 标记写入成功后，统一错题本下次读取必须可见；取消后不可见。
+- `quiz_result` 与 `paper_attempt` 使用相同语义的来源标记；前者的 sourceId 是测验结果 ID，后者是试卷作答 ID。
 
 ### 退役端点
 

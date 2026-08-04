@@ -75,25 +75,23 @@ export interface PaperExportJob {
   updatedAt: number;
 }
 
-export interface AttemptItemResult {
+export interface AnswerReviewItem {
   questionId: string;
-  score: number;
-  maxScore: number;
-  rubric: { points: Array<{ id: string; score: number; description: string; dimension?: 'process' | 'result' | 'expression' | 'knowledge' }>; reason: string };
-  evidence: Array<{ id?: string; earnedScore?: number; evidence?: string; reason?: string; studentAnswer?: string; matched?: boolean }>;
-  confidence: number;
-  verdict: 'mastered' | 'review';
+  type: string;
+  question: string;
+  studentAnswer: string;
+  referenceAnswer: string;
+  explanation: string;
+  needsReinforcement: boolean;
 }
 
-export interface AttemptDiagnosis {
+export interface PaperAttemptReview {
   id: string;
   paperId: string;
   ownerId: string;
   status: 'submitted';
-  diagnosticScore: number | null;
   submittedAt: number | null;
-  items: AttemptItemResult[];
-  events: Array<{ id: string; questionId: string; actorType: 'student' | 'parent'; action: 'request' | 'override'; reason: string; beforeJson: string; afterJson: string; createdAt: number }>;
+  items: AnswerReviewItem[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -124,8 +122,8 @@ export const createPaperAttempt = (body: { ownerId: string; paperId: string }) =
 export const savePaperAttempt = (id: string, body: { ownerId: string; action: 'save' | 'submit'; answers: Record<string, string> }) =>
   request<PaperAttempt>(`/paper-attempts/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export const getAttemptDiagnosis = (id: string, ownerId: string) =>
-  request<AttemptDiagnosis>(`/paper-attempts/${encodeURIComponent(id)}/diagnosis?ownerId=${encodeURIComponent(ownerId)}`);
+export const getPaperAttemptReview = (id: string, ownerId: string) =>
+  request<PaperAttemptReview>(`/paper-attempts/${encodeURIComponent(id)}/review?ownerId=${encodeURIComponent(ownerId)}`);
 
-export const submitAttemptReview = (id: string, body: { ownerId: string; questionId: string; action: 'request' | 'override'; reason: string; score?: number }) =>
-  request<AttemptDiagnosis>(`/paper-attempts/${encodeURIComponent(id)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+export const setPaperAttemptReinforcement = (id: string, questionId: string, body: { ownerId: string; needsReinforcement: boolean }) =>
+  request<{ questionId: string; needsReinforcement: boolean }>(`/paper-attempts/${encodeURIComponent(id)}/review-items/${encodeURIComponent(questionId)}/reinforcement`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

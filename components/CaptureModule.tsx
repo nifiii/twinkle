@@ -41,6 +41,7 @@ interface CaptureModuleProps {
   /** 嵌入时锁定 sub-tab 切换：父级二选一切换由此回调 */
   onLockedSubTabChange?: (tab: 'wrong_problems' | 'archived_docs') => void;
   onOpenQuizResult: (resultId: string) => void;
+  onOpenPaperAttempt: (attemptId: string) => void;
 }
 
 const CaptureModule: React.FC<CaptureModuleProps> = ({
@@ -52,6 +53,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
   lockedSubTab,
   onLockedSubTabChange,
   onOpenQuizResult,
+  onOpenPaperAttempt,
 }) => {
   const embedded = !!lockedSubTab;
   const [activeSubTab, setActiveSubTab] = useState<'capture' | 'wrong_problems' | 'archived_docs'>(
@@ -839,7 +841,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
           >
-            <UnifiedWrongBook currentUser={currentUser} scannedItems={userScannedItems} onDeleteScannedItem={onDeleteItem} onOpenQuizResult={onOpenQuizResult} />
+            <UnifiedWrongBook currentUser={currentUser} scannedItems={userScannedItems} onDeleteScannedItem={onDeleteItem} onOpenQuizResult={onOpenQuizResult} onOpenPaperAttempt={onOpenPaperAttempt} />
           </motion.div>
         )}
 

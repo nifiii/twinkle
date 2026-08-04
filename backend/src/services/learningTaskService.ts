@@ -32,7 +32,8 @@ export type LearningTaskLearningStatus = typeof LEARNING_TASK_LEARNING_STATUSES[
 export type LearningTaskSourceType = 'chapter' | 'olympiad' | 'wrong_problems';
 export type WrongProblemRef =
   | { source: 'scanned_item'; scannedItemId: string; problemIndex: number }
-  | { source: 'quiz_result'; quizResultId: string; problemIndex: number };
+  | { source: 'quiz_result'; quizResultId: string; problemIndex: number }
+  | { source: 'paper_attempt'; paperAttemptId: string; problemIndex: number };
 
 export interface LearningTaskRecord {
   id: string;
@@ -134,7 +135,7 @@ function parseWrongProblemRefs(value: unknown): WrongProblemRef[] {
   if (!Array.isArray(value)) throw new LearningTaskValidationError('wrongProblemRefs', '错题引用格式不正确');
   const refs = value.map((item): WrongProblemRef => {
     if (!item || typeof item !== 'object') throw new LearningTaskValidationError('wrongProblemRefs', '错题引用格式不正确');
-    const source = item as { source?: unknown; scannedItemId?: unknown; quizResultId?: unknown; problemIndex?: unknown };
+    const source = item as { source?: unknown; scannedItemId?: unknown; quizResultId?: unknown; paperAttemptId?: unknown; problemIndex?: unknown };
     if (!Number.isInteger(source.problemIndex) || (source.problemIndex as number) < 0) {
       throw new LearningTaskValidationError('wrongProblemRefs', '错题序号不正确');
     }
@@ -154,12 +155,21 @@ function parseWrongProblemRefs(value: unknown): WrongProblemRef[] {
         problemIndex: source.problemIndex as number,
       };
     }
+    if (source.source === 'paper_attempt') {
+      return {
+        source: 'paper_attempt',
+        paperAttemptId: requireText(source.paperAttemptId, 'wrongProblemRefs', '试卷作答来源'),
+        problemIndex: source.problemIndex as number,
+      };
+    }
     throw new LearningTaskValidationError('wrongProblemRefs', '错题来源类型不支持');
   });
   const unique = new Map(refs.map(ref => [
     ref.source === 'scanned_item'
       ? `${ref.source}:${ref.scannedItemId}:${ref.problemIndex}`
-      : `${ref.source}:${ref.quizResultId}:${ref.problemIndex}`,
+      : ref.source === 'quiz_result'
+        ? `${ref.source}:${ref.quizResultId}:${ref.problemIndex}`
+        : `${ref.source}:${ref.paperAttemptId}:${ref.problemIndex}`,
     ref,
   ]));
   return [...unique.values()];

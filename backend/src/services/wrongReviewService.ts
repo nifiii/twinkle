@@ -21,6 +21,7 @@ export interface WrongProblemCandidate {
   source: WrongProblemRef['source'];
   scannedItemId?: string;
   quizResultId?: string;
+  paperAttemptId?: string;
   problemIndex: number;
   subject: string;
   title: string;
@@ -56,7 +57,7 @@ function requireText(value: unknown, field: string, label: string, maxLength = 1
 
 function toReference(value: unknown): WrongProblemRef {
   if (!value || typeof value !== 'object') throw new LearningTaskValidationError('source.problems', '错题引用格式不正确');
-  const ref = value as { source?: unknown; scannedItemId?: unknown; quizResultId?: unknown; problemIndex?: unknown };
+  const ref = value as { source?: unknown; scannedItemId?: unknown; quizResultId?: unknown; paperAttemptId?: unknown; problemIndex?: unknown };
   if (!Number.isInteger(ref.problemIndex) || (ref.problemIndex as number) < 0) {
     throw new LearningTaskValidationError('source.problems', '错题序号不正确');
   }
@@ -65,6 +66,9 @@ function toReference(value: unknown): WrongProblemRef {
   }
   if (ref.source === 'quiz_result') {
     return { source: 'quiz_result', quizResultId: requireText(ref.quizResultId, 'source.problems', '课堂作答来源'), problemIndex: ref.problemIndex as number };
+  }
+  if (ref.source === 'paper_attempt') {
+    return { source: 'paper_attempt', paperAttemptId: requireText(ref.paperAttemptId, 'source.problems', '试卷作答来源'), problemIndex: ref.problemIndex as number };
   }
   throw new LearningTaskValidationError('source.problems', '错题来源类型不支持');
 }
@@ -77,7 +81,9 @@ function uniqueReferences(value: unknown): WrongProblemRef[] {
   const unique = new Map(references.map(ref => [
     ref.source === 'scanned_item'
       ? `${ref.source}:${ref.scannedItemId}:${ref.problemIndex}`
-      : `${ref.source}:${ref.quizResultId}:${ref.problemIndex}`,
+      : ref.source === 'quiz_result'
+        ? `${ref.source}:${ref.quizResultId}:${ref.problemIndex}`
+        : `${ref.source}:${ref.paperAttemptId}:${ref.problemIndex}`,
     ref,
   ]));
   if (unique.size !== references.length) throw new LearningTaskValidationError('source.problems', '不能重复选择同一道错题');
@@ -112,9 +118,14 @@ function resolveQuizResultProblem(database: Database.Database, ownerId: string, 
   `).get(ref.quizResultId, ownerId) as { subject: string; chapter: string | null; resultsJson: string | null; createdAt: number } | undefined;
   if (!row) throw new LearningTaskValidationError('source.problems', '课堂作答记录不存在于当前学生档案');
   const item = parseJson<Array<Record<string, unknown>>>(row.resultsJson, [])[ref.problemIndex];
-  if (item?.isCorrect !== false) throw new LearningTaskValidationError('source.problems', '只能选择已判定错误的课堂作答题目');
+  const questionId = String(item?.questionId || item?.id || '');
+  const marked = database.prepare(`
+    SELECT 1 FROM answer_review_flags
+    WHERE ownerId = ? AND sourceType = 'quiz_result' AND sourceId = ? AND questionId = ?
+  `).get(ownerId, ref.quizResultId, questionId);
+  if (!marked) throw new LearningTaskValidationError('source.problems', '只能选择已标记需巩固的课堂作答题目');
   const content = String(item.question || '').trim();
-  const standardAnswer = String(item.correctAnswer || '').trim();
+  const standardAnswer = String(item.referenceAnswer || item.correctAnswer || '').trim();
   if (!content || !standardAnswer) throw new LearningTaskValidationError('source.problems', '课堂作答记录缺少题干或参考答案');
   const chapter = row.chapter?.trim();
   return {
@@ -129,10 +140,52 @@ function resolveQuizResultProblem(database: Database.Database, ownerId: string, 
   };
 }
 
+function resolvePaperAttemptProblem(database: Database.Database, ownerId: string, ref: Extract<WrongProblemRef, { source: 'paper_attempt' }>): ResolvedWrongProblem {
+  const row = database.prepare(`
+    SELECT attempt.reviewSnapshotJson, attempt.createdAt, paper.contentJson,
+           blueprint.chapterIdsJson, book.subject, book.tableOfContents
+    FROM paper_attempts attempt JOIN assessment_papers paper ON paper.id = attempt.paperId AND paper.ownerId = attempt.ownerId
+    LEFT JOIN assessment_blueprints blueprint ON blueprint.id = paper.blueprintId AND blueprint.ownerId = attempt.ownerId
+    LEFT JOIN books book ON book.id = blueprint.bookId AND (book.ownerId = attempt.ownerId OR book.ownerId = 'shared')
+    WHERE attempt.id = ? AND attempt.ownerId = ? AND attempt.status = 'submitted'
+  `).get(ref.paperAttemptId, ownerId) as { reviewSnapshotJson: string | null; createdAt: number; contentJson: string; chapterIdsJson: string | null; subject: string | null; tableOfContents: string | null } | undefined;
+  if (!row) throw new LearningTaskValidationError('source.problems', '试卷作答记录不存在于当前学生档案');
+  const items = parseJson<Array<Record<string, unknown>>>(row.reviewSnapshotJson, []);
+  const item = items[ref.problemIndex];
+  const questionId = String(item?.questionId || item?.id || '');
+  const marked = database.prepare(`SELECT 1 FROM answer_review_flags WHERE ownerId = ? AND sourceType = 'paper_attempt' AND sourceId = ? AND questionId = ?`).get(ownerId, ref.paperAttemptId, questionId);
+  if (!marked) throw new LearningTaskValidationError('source.problems', '只能选择已标记需巩固的试卷作答题目');
+  const content = String(item?.question || item?.stem || '').trim();
+  const standardAnswer = String(item?.referenceAnswer || item?.answer || '').trim();
+  if (!content || !standardAnswer) throw new LearningTaskValidationError('source.problems', '试卷作答记录缺少题干或参考答案');
+  const paperContent = parseJson<{ blueprint?: { subject?: unknown; chapterTitles?: unknown } }>(row.contentJson, {});
+  const subject = normalizeSubject(row.subject || (typeof paperContent.blueprint?.subject === 'string' ? paperContent.blueprint.subject : ''));
+  if (!subject) throw new LearningTaskValidationError('source.problems', '试卷未保留学科信息，不能生成跨学科错题讲解');
+  const chapterTitles = Array.isArray(paperContent.blueprint?.chapterTitles)
+    ? paperContent.blueprint.chapterTitles.filter((title): title is string => typeof title === 'string' && Boolean(title.trim())).map(title => title.trim())
+    : selectedChapterTitles(row.tableOfContents, row.chapterIdsJson);
+  return { ref, subject, content, standardAnswer, studentAnswer: String(item?.studentAnswer || '').trim(), explanation: String(item?.explanation || '').trim(), knowledgePoints: chapterTitles, createdAt: row.createdAt };
+}
+
+function selectedChapterTitles(tableOfContents: string | null, chapterIdsJson: string | null): string[] {
+  const ids = new Set(parseJson<unknown[]>(chapterIdsJson, []).map(String));
+  const titles: string[] = [];
+  const visit = (nodes: unknown[]) => nodes.forEach(node => {
+    if (!node || typeof node !== 'object') return;
+    const item = node as { id?: unknown; title?: unknown; children?: unknown };
+    if (ids.has(String(item.id)) && typeof item.title === 'string' && item.title.trim()) titles.push(item.title.trim());
+    if (Array.isArray(item.children)) visit(item.children);
+  });
+  visit(parseJson<unknown[]>(tableOfContents, []));
+  return titles;
+}
+
 function resolveProblems(database: Database.Database, ownerId: string, refs: WrongProblemRef[]): ResolvedWrongProblem[] {
   return refs.map(ref => ref.source === 'scanned_item'
     ? resolveScannedProblem(database, ownerId, ref)
-    : resolveQuizResultProblem(database, ownerId, ref));
+    : ref.source === 'quiz_result'
+      ? resolveQuizResultProblem(database, ownerId, ref)
+      : resolvePaperAttemptProblem(database, ownerId, ref));
 }
 
 async function generateWithModel(input: { subject: string; knowledgePoints: string[]; problems: ResolvedWrongProblem[] }): Promise<WrongReviewGeneration> {
@@ -189,8 +242,21 @@ export function listWrongProblemCandidates(ownerIdInput: unknown, subjectInput?:
     SELECT id, subject, problemsJson, timestamp FROM scanned_items WHERE ownerId = ? AND type = 'wrong_problem'
   `).all(ownerId) as Array<{ id: string; subject: string; problemsJson: string | null; timestamp: number }>;
   const quizResults = database.prepare(`
-    SELECT id, subject, chapter, resultsJson, createdAt FROM quiz_results WHERE ownerId = ? AND status = 'completed'
-  `).all(ownerId) as Array<{ id: string; subject: string; chapter: string | null; resultsJson: string | null; createdAt: number }>;
+    SELECT result.id, result.subject, result.chapter, result.resultsJson, result.createdAt, flag.questionId
+    FROM quiz_results result
+    JOIN answer_review_flags flag ON flag.ownerId = result.ownerId AND flag.sourceType = 'quiz_result' AND flag.sourceId = result.id
+    WHERE result.ownerId = ?
+  `).all(ownerId) as Array<{ id: string; subject: string; chapter: string | null; resultsJson: string | null; createdAt: number; questionId: string }>;
+  const paperAttempts = database.prepare(`
+    SELECT attempt.id, attempt.createdAt, attempt.reviewSnapshotJson, paper.contentJson,
+           blueprint.chapterIdsJson, book.subject, book.tableOfContents, flag.questionId
+    FROM paper_attempts attempt
+    JOIN assessment_papers paper ON paper.id = attempt.paperId AND paper.ownerId = attempt.ownerId
+    LEFT JOIN assessment_blueprints blueprint ON blueprint.id = paper.blueprintId AND blueprint.ownerId = attempt.ownerId
+    LEFT JOIN books book ON book.id = blueprint.bookId AND (book.ownerId = attempt.ownerId OR book.ownerId = 'shared')
+    JOIN answer_review_flags flag ON flag.ownerId = attempt.ownerId AND flag.sourceType = 'paper_attempt' AND flag.sourceId = attempt.id
+    WHERE attempt.ownerId = ? AND attempt.status = 'submitted'
+  `).all(ownerId) as Array<{ id: string; createdAt: number; reviewSnapshotJson: string | null; contentJson: string; chapterIdsJson: string | null; subject: string | null; tableOfContents: string | null; questionId: string }>;
   const candidates: WrongProblemCandidate[] = [];
   for (const row of scanned) {
     const normalizedSubject = normalizeSubject(row.subject);
@@ -206,11 +272,26 @@ export function listWrongProblemCandidates(ownerIdInput: unknown, subjectInput?:
     const normalizedSubject = normalizeSubject(row.subject);
     if (subject && normalizedSubject !== subject) continue;
     parseJson<Array<Record<string, unknown>>>(row.resultsJson, []).forEach((item, problemIndex) => {
-      if (item.isCorrect !== false) return;
+      if (String(item.questionId || item.id || '') !== row.questionId) return;
       const content = String(item.question || '').trim();
-      const standardAnswer = String(item.correctAnswer || '').trim();
+      const standardAnswer = String(item.referenceAnswer || item.correctAnswer || '').trim();
       if (!content || !standardAnswer) return;
       candidates.push({ source: 'quiz_result', quizResultId: row.id, problemIndex, subject: normalizedSubject, title: row.chapter?.trim() || `${normalizedSubject}课堂错题`, contentExcerpt: content.slice(0, 120), knowledgePoints: row.chapter?.trim() ? [row.chapter.trim()] : [], createdAt: row.createdAt });
+    });
+  }
+  for (const row of paperAttempts) {
+    const content = parseJson<{ blueprint?: { subject?: unknown; chapterTitles?: unknown } }>(row.contentJson, {});
+    const normalizedSubject = normalizeSubject(row.subject || (typeof content.blueprint?.subject === 'string' ? content.blueprint.subject : ''));
+    if (!normalizedSubject || (subject && normalizedSubject !== subject)) continue;
+    const knowledgePoints = Array.isArray(content.blueprint?.chapterTitles)
+      ? content.blueprint.chapterTitles.filter((title): title is string => typeof title === 'string' && Boolean(title.trim())).map(title => title.trim())
+      : selectedChapterTitles(row.tableOfContents, row.chapterIdsJson);
+    parseJson<Array<Record<string, unknown>>>(row.reviewSnapshotJson, []).forEach((item, problemIndex) => {
+      if (String(item.questionId || item.id || '') !== row.questionId) return;
+      const contentExcerpt = String(item.question || item.stem || '').trim();
+      const standardAnswer = String(item.referenceAnswer || item.answer || '').trim();
+      if (!contentExcerpt || !standardAnswer) return;
+      candidates.push({ source: 'paper_attempt', paperAttemptId: row.id, problemIndex, subject: normalizedSubject, title: knowledgePoints[0] || `${normalizedSubject}试卷错题`, contentExcerpt: contentExcerpt.slice(0, 120), knowledgePoints, createdAt: row.createdAt });
     });
   }
   return candidates.sort((left, right) => right.createdAt - left.createdAt);
@@ -251,7 +332,7 @@ export async function createWrongReviewTask(
     const now = Date.now();
     const coursewareId = randomUUID();
     const quizId = randomUUID();
-    const sourceProblemId = references.map(ref => ref.source === 'scanned_item' ? `scan:${ref.scannedItemId}:${ref.problemIndex}` : `quiz:${ref.quizResultId}:${ref.problemIndex}`).join(',');
+    const sourceProblemId = references.map(ref => ref.source === 'scanned_item' ? `scan:${ref.scannedItemId}:${ref.problemIndex}` : ref.source === 'quiz_result' ? `quiz:${ref.quizResultId}:${ref.problemIndex}` : `paper:${ref.paperAttemptId}:${ref.problemIndex}`).join(',');
     database.transaction(() => {
       database.prepare(`INSERT INTO classroom_items (id, type, bookTitle, chapter, subject, ownerId, userName, contentJson, slideCount, source, sourceProblemId, createdAt)
         VALUES (?, 'courseware', ?, '错题讲解', ?, ?, ?, ?, ?, 'wrong_problem', ?, ?)`

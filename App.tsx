@@ -403,6 +403,7 @@ const App: React.FC = () => {
               onScanComplete={handleScanComplete}
               onDeleteScannedItem={handleDeleteScannedItem}
               onOpenQuizResult={(resultId) => handleTabChange('tutor', `task/${encodeURIComponent(`legacy:quiz_result:${resultId}`)}`)}
+              onOpenPaperAttempt={(attemptId) => handleTabChange('tutor', `paper/review/${encodeURIComponent(attemptId)}`)}
             />
           );
         case 'tutor':
@@ -412,9 +413,10 @@ const App: React.FC = () => {
           }
           if (tutorSubPath.startsWith('paper/')) {
             const [, paperId, view, attemptId] = tutorSubPath.split('/');
+            if (paperId === 'review' && view) return <AttemptDiagnosis attemptId={decodeURIComponent(view)} currentUser={currentUser} onBack={() => handleTabChange('resources', 'capture')} />;
             if (view === 'preview') return <PaperPreview paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
-            if (view === 'diagnosis' && attemptId) return <AttemptDiagnosis attemptId={decodeURIComponent(attemptId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
-            return <PaperExam paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} onPreview={() => handleTabChange('tutor', `paper/${paperId}/preview`)} onSubmitted={(attemptId) => handleTabChange('tutor', `paper/${paperId}/diagnosis/${attemptId}`)} />;
+            if (view === 'review' && attemptId) return <AttemptDiagnosis attemptId={decodeURIComponent(attemptId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
+            return <PaperExam paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} onPreview={() => handleTabChange('tutor', `paper/${paperId}/preview`)} onSubmitted={(attemptId) => handleTabChange('tutor', `paper/${paperId}/review/${attemptId}`)} />;
           }
           return tutorSubPath === '' || tutorSubPath.startsWith('task/')
             ? <ClassroomTaskHub currentUser={currentUser} books={filteredBooks} subPath={tutorSubPath} onOpenHub={() => handleTabChange('tutor')} onOpenLegacy={(subPath) => handleTabChange('tutor', subPath)} />

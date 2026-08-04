@@ -13,12 +13,14 @@ interface UnifiedWrongBookProps {
   scannedItems: ScannedItem[];
   onDeleteScannedItem?: (id: string) => void | Promise<void>;
   onOpenQuizResult: (resultId: string) => void;
+  onOpenPaperAttempt: (attemptId: string) => void;
 }
 
 const SOURCE_OPTIONS: Array<{ id: UnifiedWrongBookSource; label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'scanned_item', label: '拍题归档' },
   { id: 'quiz_result', label: '课堂作答' },
+  { id: 'paper_attempt', label: '试卷作答' },
 ];
 
 const initialPage: UnifiedWrongBookPage = {
@@ -27,6 +29,7 @@ const initialPage: UnifiedWrongBookPage = {
   sources: {
     scanned_item: { status: 'ok', count: 0, skippedCount: 0 },
     quiz_result: { status: 'ok', count: 0, skippedCount: 0 },
+    paper_attempt: { status: 'ok', count: 0, skippedCount: 0 },
   },
 };
 
@@ -49,13 +52,13 @@ function dateRange(filter: TimeFilter, startDate: string, endDate: string): { fr
 }
 
 const SourceBadge: React.FC<{ source: UnifiedWrongBookItem['source'] }> = ({ source }) => (
-  <Badge size="sm" className={source === 'scanned_item' ? 'border-neon-blue/40 bg-neon-blue/10 text-neon-blue' : 'border-neon-purple/40 bg-neon-purple/10 text-neon-purple'}>
+  <Badge size="sm" className={source === 'scanned_item' ? 'border-neon-blue/40 bg-neon-blue/10 text-neon-blue' : source === 'quiz_result' ? 'border-neon-purple/40 bg-neon-purple/10 text-neon-purple' : 'border-neon-amber/40 bg-neon-amber/10 text-neon-amber'}>
     {source === 'scanned_item' ? <FileText size={14} /> : <ClipboardCheck size={14} />}
-    {source === 'scanned_item' ? '拍题归档' : '课堂作答'}
+    {source === 'scanned_item' ? '拍题归档' : source === 'quiz_result' ? '课堂作答' : '试卷作答'}
   </Badge>
 );
 
-const UnifiedWrongBook: React.FC<UnifiedWrongBookProps> = ({ currentUser, scannedItems, onDeleteScannedItem, onOpenQuizResult }) => {
+const UnifiedWrongBook: React.FC<UnifiedWrongBookProps> = ({ currentUser, scannedItems, onDeleteScannedItem, onOpenQuizResult, onOpenPaperAttempt }) => {
   const [source, setSource] = useState<UnifiedWrongBookSource>('all');
   const [subject, setSubject] = useState('');
   const [time, setTime] = useState<TimeFilter>('all');
@@ -104,6 +107,7 @@ const UnifiedWrongBook: React.FC<UnifiedWrongBookProps> = ({ currentUser, scanne
 
   const openItem = (item: UnifiedWrongBookItem) => {
     if (item.source === 'quiz_result') return onOpenQuizResult(item.detailTarget.id);
+    if (item.source === 'paper_attempt') return onOpenPaperAttempt(item.detailTarget.id);
     const scannedItem = localScannedItems.get(item.detailTarget.id);
     if (scannedItem) setSelectedItem(scannedItem);
   };
@@ -139,10 +143,10 @@ const UnifiedWrongBook: React.FC<UnifiedWrongBookProps> = ({ currentUser, scanne
       {time === 'custom' && <div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label="开始日期" type="date" value={startDate} onChange={event => setStartDate(event.target.value)} className="min-h-11 border border-cyber-border/60 bg-cyber-bg2/60 px-3 text-sm text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue" /><span className="hidden text-cyber-muted sm:inline">至</span><input aria-label="结束日期" type="date" value={endDate} onChange={event => setEndDate(event.target.value)} className="min-h-11 border border-cyber-border/60 bg-cyber-bg2/60 px-3 text-sm text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue" /></div>}
     </div>
 
-    {unavailableSources.length > 0 && <div role="status" className="flex flex-wrap items-center gap-3 border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle size={18} /><span>{unavailableSources.map(([key]) => key === 'scanned_item' ? '拍题归档' : '课堂作答').join('、')}暂时无法读取，其他错题仍可查看。</span><button type="button" onClick={() => setRetryToken(value => value + 1)} className="ml-auto inline-flex min-h-10 items-center gap-1 border border-amber-500 px-3 font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue"><RotateCcw size={16} />重试</button></div>}
+    {unavailableSources.length > 0 && <div role="status" className="flex flex-wrap items-center gap-3 border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle size={18} /><span>{unavailableSources.map(([key]) => key === 'scanned_item' ? '拍题归档' : key === 'quiz_result' ? '课堂作答' : '试卷作答').join('、')}暂时无法读取，其他错题仍可查看。</span><button type="button" onClick={() => setRetryToken(value => value + 1)} className="ml-auto inline-flex min-h-10 items-center gap-1 border border-amber-500 px-3 font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue"><RotateCcw size={16} />重试</button></div>}
     {error && <div role="alert" className="flex flex-wrap items-center gap-3 border border-red-300 bg-red-50 p-4 text-sm text-red-800"><AlertCircle size={18} /><span>{error}</span><button type="button" onClick={() => setRetryToken(value => value + 1)} className="ml-auto inline-flex min-h-10 items-center gap-1 border border-red-500 px-3 font-medium focus:outline-none focus:ring-2 focus:ring-neon-blue"><RotateCcw size={16} />重试</button></div>}
     {loading && page.items.length === 0 ? <div role="status" className="flex min-h-48 items-center justify-center"><LoadingSpinner size={32} text="正在读取错题本" /></div> : page.items.length === 0 ? <div className="border border-cyber-border/60 bg-cyber-surface/40 p-10 text-center"><ClipboardCheck className="mx-auto text-cyber-muted" size={36} /><h3 className="mt-4 text-base font-semibold text-cyber-text">{hasActiveFilter ? '当前筛选没有错题' : '还没有可复习的错题'}</h3><p className="mt-2 text-sm text-cyber-muted">{hasActiveFilter ? '可以清除筛选，或换一个来源查看。' : '拍题归档和完成课堂测验后的错题会显示在这里。'}</p>{hasActiveFilter && <button type="button" onClick={() => { setSource('all'); setSubject(''); setTime('all'); setStartDate(''); setEndDate(''); setQuery(''); }} className="mt-5 min-h-10 border border-neon-blue px-3 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">清除筛选</button>}</div> : <div className="space-y-3">
-      <AnimatePresence initial={false}>{page.items.map(item => <motion.article key={item.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}><Card className="p-4 sm:p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-3"><div className="flex flex-wrap items-center gap-2"><SourceBadge source={item.source} /><Badge size="sm" variant="outline">{item.subject}</Badge><span className="inline-flex items-center gap-1 text-xs text-cyber-muted"><Calendar size={14} />{new Date(item.createdAt).toLocaleDateString('zh-CN')}</span></div><p className="text-base leading-7 text-cyber-text">{item.contentExcerpt}</p>{item.knowledgePoints.length > 0 && <div className="flex flex-wrap gap-2">{item.knowledgePoints.map(point => <Badge key={point} size="sm" variant="outline">{point}</Badge>)}</div>}</div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" onClick={() => openItem(item)} disabled={item.source === 'scanned_item' && !localScannedItems.has(item.detailTarget.id)} className="inline-flex min-h-11 items-center gap-1 border border-neon-blue/60 px-3 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-50">{item.source === 'scanned_item' ? <FileText size={16} /> : <ClipboardCheck size={16} />}{item.source === 'scanned_item' ? '查看错题' : '查看测验详情'}<ChevronRight size={16} /></button>{item.source === 'scanned_item' && onDeleteScannedItem && <button type="button" aria-label="删除归档错题" title="删除归档错题" onClick={() => void deleteScannedItem(item)} disabled={deletingId === item.detailTarget.id} className="inline-flex min-h-11 items-center justify-center border border-red-300 px-3 text-red-700 focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:opacity-50"><Trash2 size={17} /></button>}</div></div></Card></motion.article>)}</AnimatePresence>
+      <AnimatePresence initial={false}>{page.items.map(item => <motion.article key={item.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}><Card className="p-4 sm:p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-3"><div className="flex flex-wrap items-center gap-2"><SourceBadge source={item.source} /><Badge size="sm" variant="outline">{item.subject}</Badge><span className="inline-flex items-center gap-1 text-xs text-cyber-muted"><Calendar size={14} />{new Date(item.createdAt).toLocaleDateString('zh-CN')}</span></div><p className="text-base leading-7 text-cyber-text">{item.contentExcerpt}</p>{item.knowledgePoints.length > 0 && <div className="flex flex-wrap gap-2">{item.knowledgePoints.map(point => <Badge key={point} size="sm" variant="outline">{point}</Badge>)}</div>}</div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" onClick={() => openItem(item)} disabled={item.source === 'scanned_item' && !localScannedItems.has(item.detailTarget.id)} className="inline-flex min-h-11 items-center gap-1 border border-neon-blue/60 px-3 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-50">{item.source === 'scanned_item' ? <FileText size={16} /> : <ClipboardCheck size={16} />}{item.source === 'scanned_item' ? '查看错题' : '查看作答回顾'}<ChevronRight size={16} /></button>{item.source === 'scanned_item' && onDeleteScannedItem && <button type="button" aria-label="删除归档错题" title="删除归档错题" onClick={() => void deleteScannedItem(item)} disabled={deletingId === item.detailTarget.id} className="inline-flex min-h-11 items-center justify-center border border-red-300 px-3 text-red-700 focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:opacity-50"><Trash2 size={17} /></button>}</div></div></Card></motion.article>)}</AnimatePresence>
       {page.nextCursor && <div className="flex justify-center"><button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="inline-flex min-h-11 items-center gap-2 border border-cyber-border px-4 text-sm font-medium text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:opacity-50">{loadingMore && <Loader2 className="animate-spin" size={16} />}加载更多</button></div>}
     </div>}
     {selectedItem && <PaperDetailModal item={{ ...selectedItem, meta: { ...selectedItem.meta, type: DocType.WRONG_PROBLEM } }} onClose={() => setSelectedItem(null)} />}
