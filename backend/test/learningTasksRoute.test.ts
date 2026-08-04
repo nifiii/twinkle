@@ -44,6 +44,10 @@ test('learning task API returns a paged index and stable context and missing-tar
     assert.equal(candidates.status, 200);
     assert.deepEqual(candidatesBody.data, [{ source: 'scanned_item', scannedItemId: 'scan-candidate', problemIndex: 0, subject: '数学', title: '数学错题', contentExcerpt: '36 除以 6 等于多少？', knowledgePoints: ['除法'], createdAt: 1100 }]);
 
+    const wrongBook = await fetch(`${baseUrl.replace('/learning-tasks', '/wrong-book')}?ownerId=child_1&source=scanned_item`);
+    assert.equal(wrongBook.status, 200);
+    assert.deepEqual((await wrongBook.json() as { data: { items: Array<{ id: string; source: string }> } }).data.items, [{ id: 'scanned_item:scan-candidate:0', source: 'scanned_item', reference: { scannedItemId: 'scan-candidate', problemIndex: 0 }, subject: '数学', contentExcerpt: '36 除以 6 等于多少？', knowledgePoints: ['除法'], createdAt: 1100, detailTarget: { kind: 'scanned_item', id: 'scan-candidate', problemIndex: 0 }, capabilities: { view: true, edit: false, delete: true } }]);
+
     const olympiadMaterials = await fetch(`${baseUrl.replace('/learning-tasks', '/assistant/olympiad-materials')}?ownerId=child_1`);
     assert.equal(olympiadMaterials.status, 200);
     assert.deepEqual((await olympiadMaterials.json() as { data: unknown[] }).data, []);

@@ -6,6 +6,7 @@ import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLe
 import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
 import { isRetiredLearningContent } from '../services/retiredLearningContentService.js';
+import { getUnifiedWrongBook, WrongBookUnavailableError, WrongBookValidationError } from '../services/unifiedWrongBookService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -17,6 +18,8 @@ const fail = (error: unknown, res: Response) => {
   if (error instanceof LearningOwnerContextError) return res.status(400).json({ success: false, errorCode: 'invalid_context', error: '需要当前学生档案' });
   if (error instanceof LearningTaskValidationError) return res.status(400).json({ success: false, errorCode: 'invalid_source', field: error.field, error: error.message });
   if (error instanceof TextbookTaskUnavailableError) return res.status(400).json({ success: false, errorCode: error.code, error: error.message });
+  if (error instanceof WrongBookValidationError) return res.status(400).json({ success: false, errorCode: 'INVALID_FILTER', error: error.message });
+  if (error instanceof WrongBookUnavailableError) return res.status(500).json({ success: false, errorCode: 'WRONG_BOOK_UNAVAILABLE', error: error.message });
   console.error('[learning-tasks]', error);
   return res.status(500).json({ success: false, errorCode: 'generation_failed', error: '学习任务读取失败，请稍后重试' });
 };
@@ -48,6 +51,10 @@ router.get('/assistant/wrong-problems', (req: Request, res: Response) => {
   try {
     return res.json({ success: true, data: listWrongProblemCandidates(req.query.ownerId, req.query.subject, db) });
   } catch (error) { return fail(error, res); }
+});
+router.get('/wrong-book', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: getUnifiedWrongBook(req.query as Record<string, unknown>, db) }); } catch (error) { return fail(error, res); }
 });
 router.get('/assistant/books/:bookId/chapters/:chapterId/actions', (req: Request, res: Response) => {
   if (!enabled(res)) return;
