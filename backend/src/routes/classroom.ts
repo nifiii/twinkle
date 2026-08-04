@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import OpenAI from 'openai';
 import db from '../services/databaseService.js';
+import { isRetiredLearningContent } from '../services/retiredLearningContentService.js';
 
 const router = Router();
 
@@ -200,6 +201,9 @@ router.get('/classroom/:id', (req: Request, res: Response) => {
   try {
     const row = db.prepare('SELECT * FROM classroom_items WHERE id = ?').get(id) as any;
     if (!row) {
+      if (isRetiredLearningContent(db, req.query.ownerId, id, ['classroom_courseware', 'classroom_quiz'])) {
+        return res.status(410).json({ success: false, errorCode: 'learning_content_retired', error: '该学习内容已下线' });
+      }
       return res.status(404).json({ success: false, error: '记录不存在' });
     }
 

@@ -5,6 +5,7 @@ import { LearningTaskValidationError, retryLearningTask } from '../services/lear
 import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLegacyTaskReference } from '../services/classroomTaskQueryService.js';
 import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
+import { isRetiredLearningContent } from '../services/retiredLearningContentService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -23,6 +24,7 @@ const taskSummary = (task: NonNullable<ReturnType<typeof getClassroomTask>>) => 
   const { sourceSnapshot, links, events, errorCode, errorMessage, ...summary } = task;
   return summary;
 };
+const retired = (res: Response) => res.status(410).json({ success: false, errorCode: 'learning_content_retired', error: '该学习内容已下线' });
 
 router.get('/learning-tasks', (req: Request, res: Response) => {
   if (!enabled(res)) return;
@@ -74,12 +76,12 @@ router.get('/learning-tasks/:id', (req: Request, res: Response) => {
     const task = getClassroomTask(db, req.params.id, req.query.ownerId);
     if (!task) {
       const legacyReference = parseLegacyTaskReference(req.params.id);
-      if (legacyReference && !learningTaskTargetExists(db, req.query.ownerId, legacyReference)) {
-        return res.status(410).json({ success: false, errorCode: 'task_target_missing', error: '关联学习内容已不存在' });
-      }
+      if (legacyReference && isRetiredLearningContent(db, req.query.ownerId, legacyReference.entityId, [legacyReference.entityType])) return retired(res);
+      if (isRetiredLearningContent(db, req.query.ownerId, req.params.id, ['learning_task'])) return retired(res);
       return res.status(404).json({ success: false, errorCode: 'task_not_found', error: '学习任务不存在' });
     }
     if (task.primaryLink && task.primaryLink.entityType !== 'external_resource' && !learningTaskTargetExists(db, req.query.ownerId, task.primaryLink)) {
+      if (isRetiredLearningContent(db, req.query.ownerId, task.primaryLink.entityId, [task.primaryLink.entityType as 'classroom_courseware' | 'classroom_quiz' | 'learning_package' | 'assessment_paper' | 'quiz_result'])) return retired(res);
       return res.status(410).json({ success: false, errorCode: 'task_target_missing', error: '关联学习内容已不存在' });
     }
     return res.json({ success: true, data: task });

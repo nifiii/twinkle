@@ -10,9 +10,10 @@ test('learning task API returns a paged index and stable context and missing-tar
   const dataDir = await mkdtemp(path.join(tmpdir(), 'twinkle-learning-tasks-'));
   process.env.DATA_DIR = dataDir;
   process.env.LEARNING_TASKS_ENABLED = 'true';
-  const [{ default: db, initDatabase }, { default: router }] = await Promise.all([
+  const [{ default: db, initDatabase }, { default: router }, { default: classroomRouter }] = await Promise.all([
     import('../src/services/databaseService.js'),
     import('../src/routes/learningTasks.js'),
+    import('../src/routes/classroom.js'),
   ]);
   initDatabase();
   db.prepare(`INSERT INTO classroom_items (id, type, bookTitle, chapter, subject, ownerId, contentJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -23,6 +24,7 @@ test('learning task API returns a paged index and stable context and missing-tar
   const app = express();
   app.use(express.json());
   app.use('/api', router);
+  app.use('/api', classroomRouter);
   const server = app.listen(0);
   await once(server, 'listening');
   const address = server.address();
@@ -58,9 +60,21 @@ test('learning task API returns a paged index and stable context and missing-tar
     assert.equal((await missingContext.json() as { errorCode: string }).errorCode, 'invalid_context');
 
     db.prepare('DELETE FROM classroom_items WHERE id = ?').run('legacy-courseware');
+    db.prepare(`INSERT INTO retired_learning_content (ownerId, entityType, entityId, retiredAt) VALUES ('child_1', 'classroom_courseware', 'legacy-courseware', 1001)`).run();
     const missingTarget = await fetch(`${baseUrl}/legacy:classroom_courseware:legacy-courseware?ownerId=child_1`);
     assert.equal(missingTarget.status, 410);
-    assert.equal((await missingTarget.json() as { errorCode: string }).errorCode, 'task_target_missing');
+    assert.equal((await missingTarget.json() as { errorCode: string }).errorCode, 'learning_content_retired');
+
+    const retiredClassroom = await fetch(`${baseUrl.replace('/learning-tasks', '/classroom/legacy-courseware')}?ownerId=child_1`);
+    assert.equal(retiredClassroom.status, 410);
+    assert.equal((await retiredClassroom.json() as { errorCode: string }).errorCode, 'learning_content_retired');
+
+    const unknownTask = await fetch(`${baseUrl}/unknown-task?ownerId=child_1`);
+    assert.equal(unknownTask.status, 404);
+    assert.equal((await unknownTask.json() as { errorCode: string }).errorCode, 'task_not_found');
+
+    const unknownClassroom = await fetch(`${baseUrl.replace('/learning-tasks', '/classroom/unknown-courseware')}?ownerId=child_1`);
+    assert.equal(unknownClassroom.status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     db.close();
