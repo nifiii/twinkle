@@ -116,6 +116,16 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_learning_task_events_task
       ON learning_task_events(taskId, createdAt ASC);
 
+    CREATE TABLE IF NOT EXISTS retired_learning_content (
+      ownerId TEXT NOT NULL,
+      entityType TEXT NOT NULL,
+      entityId TEXT NOT NULL,
+      retiredAt INTEGER NOT NULL,
+      PRIMARY KEY (ownerId, entityType, entityId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_retired_learning_content_lookup
+      ON retired_learning_content(ownerId, entityId);
+
     CREATE TABLE IF NOT EXISTS learning_package_progress (
       ownerId TEXT NOT NULL,
       packageId TEXT NOT NULL,
