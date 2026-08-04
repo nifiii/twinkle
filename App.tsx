@@ -402,6 +402,7 @@ const App: React.FC = () => {
               onSubChange={(s) => handleTabChange('resources', s)}
               onScanComplete={handleScanComplete}
               onDeleteScannedItem={handleDeleteScannedItem}
+              onOpenQuizResult={(resultId) => handleTabChange('tutor', `task/${encodeURIComponent(`legacy:quiz_result:${resultId}`)}`)}
             />
           );
         case 'tutor':

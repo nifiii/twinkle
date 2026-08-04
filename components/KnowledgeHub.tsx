@@ -25,7 +25,7 @@ const getFullImageUrl = (path: string) => {
 };
 
 // 详情弹窗组件
-const PaperDetailModal: React.FC<{ 
+export const PaperDetailModal: React.FC<{
   item: ScannedItem; 
   onClose: () => void;
 }> = ({ item, onClose }) => {

@@ -14,6 +14,7 @@ interface ResourcesShellProps {
   onSubChange: (sub: ResourcesSub) => void;
   onScanComplete: (item: ScannedItem) => void;
   onDeleteScannedItem: (id: string) => Promise<void> | void;
+  onOpenQuizResult: (resultId: string) => void;
 }
 
 interface SubTabDef {
@@ -35,6 +36,7 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
   onSubChange,
   onScanComplete,
   onDeleteScannedItem,
+  onOpenQuizResult,
 }) => {
   // LibraryHub 全屏子页（read/upload/edit）下需要让父级隐藏 TabBar
   const [libraryViewMode, setLibraryViewMode] = useState<'grid' | 'upload' | 'edit' | 'read'>('grid');
@@ -114,7 +116,8 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
           currentUser={currentUser}
           scannedItems={scannedItems}
           onScanComplete={onScanComplete}
-          onDeleteItem={onDeleteScannedItem as (id: string) => void}
+          onDeleteItem={onDeleteScannedItem}
+          onOpenQuizResult={onOpenQuizResult}
           hideHeader
           lockedSubTab={captureLockedTab}
           onLockedSubTabChange={setCaptureLockedTab}

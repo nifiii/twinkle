@@ -8,6 +8,7 @@ import { Button, LoadingSpinner, Card, Badge, Input } from './ui';
 import { Camera, Upload, CheckCircle, Search, Filter, Plus, FileText, ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import KnowledgeHub from './KnowledgeHub';
+import UnifiedWrongBook from './UnifiedWrongBook';
 import { calculateFileHash } from '../utils/hashUtils';
 import { checkFileHash } from '../services/apiService';
 
@@ -30,7 +31,7 @@ const getFullImageUrl = (path: string) => {
 
 interface CaptureModuleProps {
   onScanComplete: (item: ScannedItem) => void;
-  onDeleteItem?: (id: string) => void;
+  onDeleteItem?: (id: string) => void | Promise<void>;
   currentUser: UserProfile;
   scannedItems: ScannedItem[];
   /** 嵌入到 ResourcesShell 时：隐藏顶部"拍题"标题 */
@@ -39,6 +40,7 @@ interface CaptureModuleProps {
   lockedSubTab?: 'wrong_problems' | 'archived_docs';
   /** 嵌入时锁定 sub-tab 切换：父级二选一切换由此回调 */
   onLockedSubTabChange?: (tab: 'wrong_problems' | 'archived_docs') => void;
+  onOpenQuizResult: (resultId: string) => void;
 }
 
 const CaptureModule: React.FC<CaptureModuleProps> = ({
@@ -49,6 +51,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
   hideHeader = false,
   lockedSubTab,
   onLockedSubTabChange,
+  onOpenQuizResult,
 }) => {
   const embedded = !!lockedSubTab;
   const [activeSubTab, setActiveSubTab] = useState<'capture' | 'wrong_problems' | 'archived_docs'>(
@@ -744,7 +747,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
 
 
           {/* 搜索框 (仅在列表页显示) */}
-          {activeSubTab !== 'capture' && (
+          {activeSubTab === 'archived_docs' && (
             <>
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-cyber-muted" />
@@ -752,7 +755,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={activeSubTab === 'wrong_problems' ? "搜索错题内容..." : "搜索归档文档..."}
+                  placeholder="搜索归档文档..."
                   className="pl-10 h-11"
                 />
               </div>
@@ -836,17 +839,7 @@ const CaptureModule: React.FC<CaptureModuleProps> = ({
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
           >
-            <KnowledgeHub 
-              items={userScannedItems} 
-              currentUser={currentUser}
-              searchQuery={searchQuery}
-              filterSubject={filterSubject}
-              filterTime={filterTime}
-              startDate={startDate}
-              endDate={endDate}
-              filterType="wrong" // 强制只显示错题
-              onDelete={onDeleteItem}
-            />
+            <UnifiedWrongBook currentUser={currentUser} scannedItems={userScannedItems} onDeleteScannedItem={onDeleteItem} onOpenQuizResult={onOpenQuizResult} />
           </motion.div>
         )}
 
