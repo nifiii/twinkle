@@ -10,6 +10,7 @@ interface ClassroomLegacyDetailProps {
   currentUser: { id: string; name: string };
   onBack: () => void;
   onOpenTask: (taskId: string) => void;
+  initialEntityId?: string;
 }
 
 const TYPE_LABEL: Record<string, string> = { choice: '选择题', fill: '填空题', essay: '解答题' };
@@ -37,9 +38,14 @@ const QuizResultDetail: React.FC<{ result: LegacyQuizResult; onBack: () => void 
   </section>;
 };
 
-const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, currentUser, onBack, onOpenTask }) => {
+const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, currentUser, onBack, onOpenTask, initialEntityId }) => {
   const links = task.links.filter(link => ['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(link.entityType));
-  const [activeLinkKey, setActiveLinkKey] = useState(() => task.primaryLink ? `${task.primaryLink.entityType}:${task.primaryLink.entityId}` : '');
+  const initialLinkKey = () => initialEntityId
+    ? links.find(item => item.entityId === initialEntityId)
+      ? `${links.find(item => item.entityId === initialEntityId)!.entityType}:${initialEntityId}`
+      : ''
+    : task.primaryLink ? `${task.primaryLink.entityType}:${task.primaryLink.entityId}` : '';
+  const [activeLinkKey, setActiveLinkKey] = useState(initialLinkKey);
   const link = links.find(item => `${item.entityType}:${item.entityId}` === activeLinkKey) || task.primaryLink;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -47,14 +53,14 @@ const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, cur
   const [result, setResult] = useState<LegacyQuizResult | null>(null);
 
   useEffect(() => {
-    setActiveLinkKey(task.primaryLink ? `${task.primaryLink.entityType}:${task.primaryLink.entityId}` : '');
-  }, [task.id, task.primaryLink?.entityId, task.primaryLink?.entityType]);
+    setActiveLinkKey(initialLinkKey());
+  }, [task.id, task.primaryLink?.entityId, task.primaryLink?.entityType, initialEntityId]);
 
   useEffect(() => {
     let cancelled = false;
     if (!link || !['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(link.entityType)) return;
     setLoading(true); setError('');
-    const request = link.entityType === 'quiz_result' ? fetchLegacyQuizResult(link.entityId).then(value => ({ result: value })) : fetchLegacyClassroomContent(link.entityId).then(value => ({ content: value }));
+    const request = link.entityType === 'quiz_result' ? fetchLegacyQuizResult(link.entityId).then(value => ({ result: value })) : fetchLegacyClassroomContent(link.entityId, currentUser.id).then(value => ({ content: value }));
     request.then(value => {
       if (cancelled) return;
       if ('content' in value) { setContent(value.content); setResult(null); }
@@ -63,7 +69,7 @@ const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, cur
       .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : '历史内容读取失败'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [link?.entityId, link?.entityType]);
+  }, [currentUser.id, link?.entityId, link?.entityType]);
 
   if (!link) return null;
   if (loading) return <div role="status" className="flex items-center gap-2 py-12 text-cyber-muted"><Loader2 className="animate-spin" />正在读取学习内容</div>;

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowLeft, BookOpen, ChevronRight, GraduationCap, Loader2, RefreshCw } from 'lucide-react';
-import { ClassroomTaskDetail, ClassroomTaskSummary, fetchClassroomTask, fetchClassroomTasks, retryClassroomTask } from '../services/classroomTaskApi';
+import { ClassroomTaskApiError, ClassroomTaskDetail, ClassroomTaskSummary, fetchClassroomTask, fetchClassroomTasks, retryClassroomTask } from '../services/classroomTaskApi';
 import ClassroomLegacyDetail from './ClassroomLegacyDetail';
+import StudentCoursewareReader from './StudentCoursewareReader';
 
 interface ClassroomTaskHubProps {
   currentUser: { id: string; name: string };
@@ -57,6 +58,8 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
   const [detail, setDetail] = useState<ClassroomTaskDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [retired, setRetired] = useState(false);
+  const [showPracticeQuiz, setShowPracticeQuiz] = useState(false);
 
   const subjects = useMemo(() => {
     const available = new Set([...SUBJECT_ORDER, ...books.map(book => book.subject || '').filter(Boolean)]);
@@ -92,10 +95,14 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
   useEffect(() => {
     if (!taskId) { setDetail(null); return; }
     let cancelled = false;
-    setDetailLoading(true); setError('');
+    setDetailLoading(true); setError(''); setRetired(false); setShowPracticeQuiz(false);
     fetchClassroomTask(taskId, currentUser.id)
       .then(value => { if (!cancelled) setDetail(value); })
-      .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : '任务详情读取失败'); })
+      .catch(reason => {
+        if (cancelled) return;
+        if (reason instanceof ClassroomTaskApiError && reason.errorCode === 'learning_content_retired') setRetired(true);
+        else setError(reason instanceof Error ? reason.message : '任务详情读取失败');
+      })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [currentUser.id, taskId]);
@@ -121,15 +128,20 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
     return <button type="button" onClick={() => onOpenLegacy(`task/${encodeURIComponent(item.id)}`)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-neon-blue px-3 text-sm font-medium text-neon-blue transition-colors hover:bg-neon-blue/10 focus:outline-none focus:ring-2 focus:ring-neon-blue">继续学习 <ChevronRight size={16} /></button>;
   };
 
+  const practiceQuiz = detail?.links.find(link => link.entityType === 'classroom_quiz' && link.role === 'practice');
+  const studentCourseware = detail?.primaryLink?.entityType === 'classroom_courseware' && detail.sourceSnapshot?.sourceType === 'chapter';
+  if (taskId && detail && studentCourseware && !showPracticeQuiz) {
+    return <StudentCoursewareReader coursewareId={detail.primaryLink!.entityId} ownerId={currentUser.id} title={detail.title} chapterTitles={detail.chapterTitles} onBack={onOpenHub} onOpenQuiz={() => setShowPracticeQuiz(true)} />;
+  }
   if (taskId && detail?.primaryLink && ['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(detail.primaryLink.entityType)) {
-    return <ClassroomLegacyDetail task={detail} currentUser={currentUser} onBack={onOpenHub} onOpenTask={(id) => onOpenLegacy(`task/${encodeURIComponent(id)}`)} />;
+    return <ClassroomLegacyDetail task={detail} currentUser={currentUser} onBack={showPracticeQuiz ? () => setShowPracticeQuiz(false) : onOpenHub} onOpenTask={(id) => onOpenLegacy(`task/${encodeURIComponent(id)}`)} initialEntityId={showPracticeQuiz ? practiceQuiz?.entityId : undefined} />;
   }
 
   if (taskId) {
     return <section className="mx-auto max-w-4xl space-y-5" aria-labelledby="task-detail-title">
       <button type="button" onClick={onOpenHub} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button>
       {error && <div role="alert" className="flex gap-2 border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{error}</div>}
-      {detailLoading ? <div role="status" className="flex items-center gap-2 py-12 text-cyber-muted"><Loader2 className="animate-spin" />正在读取学习任务</div> : detail ? <article className="border border-cyber-border bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm text-neon-blue">{TYPE_LABEL[detail.taskType] || detail.taskType}</p><h1 id="task-detail-title" className="mt-1 text-xl font-semibold text-cyber-text">{detail.title}</h1><p className="mt-2 text-sm text-cyber-muted">{detail.book?.title || '独立学习内容'}{detail.chapterTitles.length ? ` · ${detail.chapterTitles.join('、')}` : ''}</p></div><span className="border border-cyber-border px-3 py-1 text-sm text-cyber-muted">{STATUS_LABEL[detail.generationStatus] || detail.generationStatus}</span></div>{detail.taskType === 'video' ? <div className="mt-6 flex items-start gap-2 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertCircle size={18} />视频学习已取消，历史任务仅保留记录，不再提供搜索或播放。</div> : detail.generationStatus !== 'ready' ? <div className="mt-6 flex items-start gap-2 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertCircle size={18} />{detail.errorMessage || '该学习任务暂不可继续，请返回智慧课堂后重试。'}</div> : nativePath(detail.primaryLink) ? <button type="button" onClick={() => onOpenLegacy(nativePath(detail.primaryLink)!)} className="mt-6 min-h-11 bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">开始学习</button> : <div className="mt-6 flex items-start gap-2 border border-cyber-border p-4 text-sm text-cyber-muted"><BookOpen size={18} />该学习内容暂不支持继续学习。</div>}</article> : <div role="status" className="border border-cyber-border p-5 text-sm text-cyber-muted">未找到该学习任务。</div>}
+      {detailLoading ? <div role="status" className="flex items-center gap-2 py-12 text-cyber-muted"><Loader2 className="animate-spin" />正在读取学习任务</div> : retired ? <div role="status" className="rounded-xl border border-cyber-border/60 bg-cyber-surface/60 p-8 text-center text-sm text-cyber-text">该学习内容已下线</div> : detail ? <article className="border border-cyber-border bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm text-neon-blue">{TYPE_LABEL[detail.taskType] || detail.taskType}</p><h1 id="task-detail-title" className="mt-1 text-xl font-semibold text-cyber-text">{detail.title}</h1><p className="mt-2 text-sm text-cyber-muted">{detail.book?.title || '独立学习内容'}{detail.chapterTitles.length ? ` · ${detail.chapterTitles.join('、')}` : ''}</p></div><span className="border border-cyber-border px-3 py-1 text-sm text-cyber-muted">{STATUS_LABEL[detail.generationStatus] || detail.generationStatus}</span></div>{detail.taskType === 'video' ? <div className="mt-6 flex items-start gap-2 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertCircle size={18} />视频学习已取消，历史任务仅保留记录，不再提供搜索或播放。</div> : detail.generationStatus !== 'ready' ? <div className="mt-6 flex items-start gap-2 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertCircle size={18} />{detail.errorMessage || '该学习任务暂不可继续，请返回智慧课堂后重试。'}</div> : nativePath(detail.primaryLink) ? <button type="button" onClick={() => onOpenLegacy(nativePath(detail.primaryLink)!)} className="mt-6 min-h-11 bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">开始学习</button> : <div className="mt-6 flex items-start gap-2 border border-cyber-border p-4 text-sm text-cyber-muted"><BookOpen size={18} />该学习内容暂不支持继续学习。</div>}</article> : <div role="status" className="border border-cyber-border p-5 text-sm text-cyber-muted">未找到该学习任务。</div>}
     </section>;
   }
 

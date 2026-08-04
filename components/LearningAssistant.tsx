@@ -11,6 +11,7 @@ interface LearningAssistantProps {
   view: 'wrong' | 'textbook';
   onViewChange: (view: 'wrong' | 'textbook') => void;
   onOpenClassroom: () => void;
+  onOpenTask: (taskId: string) => void;
 }
 
 type ChapterOption = { id: string; title: string; breadcrumb: string };
@@ -42,7 +43,7 @@ const flattenChapters = (nodes: EBook['tableOfContents'], ancestors: string[] = 
 
 const controlClass = 'min-h-11 rounded-xl border border-cyber-border/60 bg-cyber-surface/60 px-3 text-base text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue disabled:cursor-not-allowed disabled:opacity-60';
 
-const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view, onViewChange, onOpenClassroom }) => {
+const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view, onViewChange, onOpenClassroom, onOpenTask }) => {
   const [items, setItems] = useState<WrongProblemCandidate[]>([]);
   const [subject, setSubject] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -50,6 +51,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [createdTitle, setCreatedTitle] = useState('');
+  const [createdTaskId, setCreatedTaskId] = useState('');
   const [books, setBooks] = useState<EBook[]>([]);
   const [materials, setMaterials] = useState<OlympiadMaterialOption[]>([]);
   const [booksLoading, setBooksLoading] = useState(false);
@@ -141,10 +143,10 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
 
   const createWrongReview = async () => {
     if (!selectedItems.length || creating) return;
-    setCreating(true); setError(''); setCreatedTitle('');
+    setCreating(true); setError(''); setCreatedTitle(''); setCreatedTaskId('');
     try {
       const task = await createWrongReviewTask({ ownerId: currentUser.id, userName: currentUser.name, grade: currentUser.grade, subject, problems: selectedItems.map(item => item.source === 'scanned_item' ? { source: item.source, scannedItemId: item.scannedItemId, problemIndex: item.problemIndex } : { source: item.source, quizResultId: item.quizResultId, problemIndex: item.problemIndex }) });
-      setCreatedTitle(task.title);
+      setCreatedTitle(task.title); setCreatedTaskId(task.id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
     finally { setCreating(false); }
   };
@@ -164,21 +166,21 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     if (!selectedAction || !selectedBook || !selectedChapter || !actionDetail?.available || textbookCreating) return;
     const chapterIds = selectedAction === 'assessment' ? assessmentChapterIds : [selectedChapter.id];
     if (!chapterIds.length) return;
-    setTextbookCreating(true); setTextbookError(''); setCreatedTitle('');
+    setTextbookCreating(true); setTextbookError(''); setCreatedTitle(''); setCreatedTaskId('');
     const options: Record<string, string> = selectedAction === 'assessment' ? { examType, difficulty } : {};
     try {
       const task = await createTextbookTask({ ownerId: currentUser.id, userName: currentUser.name, taskType: selectedAction, bookId: selectedBook.id, chapterIds, options });
-      setCreatedTitle(task.title);
+      setCreatedTitle(task.title); setCreatedTaskId(task.id);
     } catch (reason) { setTextbookError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
     finally { setTextbookCreating(false); }
   };
 
   const createOlympiadTask = async () => {
     if (!olympiadBookId || textbookCreating) return;
-    setTextbookCreating(true); setTextbookError(''); setCreatedTitle('');
+    setTextbookCreating(true); setTextbookError(''); setCreatedTitle(''); setCreatedTaskId('');
     try {
       const task = await createOlympiadAssessmentTask({ ownerId: currentUser.id, userName: currentUser.name, olympiadBookId, examType, difficulty });
-      setCreatedTitle(task.title);
+      setCreatedTitle(task.title); setCreatedTaskId(task.id);
     } catch (reason) { setTextbookError(reason instanceof Error ? reason.message : '生成失败，请稍后重试'); }
     finally { setTextbookCreating(false); }
   };
@@ -205,7 +207,7 @@ const LearningAssistant: React.FC<LearningAssistantProps> = ({ currentUser, view
     <div role="tablist" aria-label="学习方式" className="flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-cyber-border/60 bg-cyber-surface/50 p-1 backdrop-blur-md">
       {SOURCE_TABS.map(tab => { const active = tab.id === 'wrong' ? view === 'wrong' : view === 'textbook' && textbookMode === (tab.id === 'olympiad' ? 'olympiad' : 'chapter'); const Icon = tab.icon; return <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => selectSource(tab.id)} className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-neon-blue ${active ? 'border-neon-blue/40 bg-gradient-to-r from-neon-blue/25 to-neon-purple/20 text-neon-blue shadow-glow-sm' : 'border-transparent text-cyber-muted hover:bg-white/5 hover:text-cyber-text'}`}><Icon size={16} />{tab.label}</button>; })}
     </div>
-    {createdTitle && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/70 bg-emerald-50/90 p-4 text-sm text-emerald-900"><span className="flex items-center gap-2"><CheckCircle2 size={18} />已生成“{createdTitle}”</span><button type="button" onClick={onOpenClassroom} className="min-h-10 rounded-xl border border-emerald-700 px-3 font-medium text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-700">进入智慧课堂</button></div>}
+    {createdTitle && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/70 bg-emerald-50/90 p-4 text-sm text-emerald-900"><span className="flex items-center gap-2"><CheckCircle2 size={18} />已生成“{createdTitle}”</span><div className="flex gap-2"><button type="button" onClick={onOpenClassroom} className="min-h-10 rounded-xl border border-emerald-700 px-3 font-medium text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-700">智慧课堂</button>{createdTaskId && <button type="button" onClick={() => onOpenTask(createdTaskId)} className="min-h-10 rounded-xl bg-emerald-700 px-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-emerald-700">开始学习</button>}</div></div>}
 
     {view === 'wrong' && <>
       {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} />{error}</div>}

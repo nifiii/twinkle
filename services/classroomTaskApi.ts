@@ -26,6 +26,13 @@ export interface ClassroomTaskDetail extends ClassroomTaskSummary {
   errorMessage: string | null;
   links: ClassroomTaskLink[];
   videoResource: { id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string } | null;
+  sourceSnapshot?: { sourceType: 'chapter' | 'olympiad' | 'wrong_problems' | 'legacy'; bookId?: string; chapterIds?: string[] };
+}
+
+export class ClassroomTaskApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly errorCode?: string) {
+    super(message);
+  }
 }
 
 export interface ClassroomTaskPage {
@@ -42,7 +49,7 @@ export interface LegacyClassroomContent {
   ownerId: string;
   userName: string;
   createdAt: number;
-  content: unknown[];
+  content: unknown;
 }
 
 export interface LegacyQuizResult {
@@ -65,7 +72,7 @@ export interface LegacyQuizResult {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const body = await response.json();
-  if (!response.ok || !body.success) throw new Error(body.error || '智慧课堂读取失败，请稍后重试');
+  if (!response.ok || !body.success) throw new ClassroomTaskApiError(body.error || '智慧课堂读取失败，请稍后重试', response.status, body.errorCode);
   return body.data as T;
 }
 
@@ -99,8 +106,9 @@ export function retryClassroomTask(id: string, ownerId: string): Promise<Classro
   });
 }
 
-export function fetchLegacyClassroomContent(id: string): Promise<LegacyClassroomContent> {
-  return request<LegacyClassroomContent>(`/api/classroom/${encodeURIComponent(id)}`);
+export function fetchLegacyClassroomContent(id: string, ownerId?: string): Promise<LegacyClassroomContent> {
+  const query = ownerId ? `?${new URLSearchParams({ ownerId })}` : '';
+  return request<LegacyClassroomContent>(`/api/classroom/${encodeURIComponent(id)}${query}`);
 }
 
 export function fetchLegacyQuizResult(id: string): Promise<LegacyQuizResult> {
