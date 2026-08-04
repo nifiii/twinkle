@@ -5,6 +5,29 @@ import { initLearningDomainDatabase } from '../src/services/learningDomain.js';
 import { getLearningTask } from '../src/services/learningTaskService.js';
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../src/services/textbookTaskService.js';
 
+function studentCourseware(subject: string) {
+  const knowledgePoint = `${subject}章节知识点`;
+  return {
+    schemaVersion: 1 as const,
+    audience: 'student' as const,
+    objectives: [`理解${knowledgePoint}`],
+    steps: [
+      { id: 'step-1', kind: 'objective' as const, knowledgePoint, title: '学习目标', content: `完成${knowledgePoint}的自主学习。` },
+      { id: 'step-2', kind: 'explanation' as const, knowledgePoint, title: '分步讲解', content: `用本章内容理解${knowledgePoint}。` },
+      { id: 'step-3', kind: 'example' as const, knowledgePoint, title: '跟着示例做', content: '先观察题目条件，再完成推理。', example: { prompt: `${subject}示例`, walkthrough: ['读题', '找出关键条件'], answer: '示例答案' } },
+      { id: 'step-4', kind: 'self_check' as const, knowledgePoint, title: '马上自检', content: '独立判断是否掌握。', selfCheck: { id: 'check-1', prompt: `${subject}自检题`, options: ['A', 'B'], answer: 'A', explanation: '结合本章知识点判断。' } },
+      { id: 'step-5', kind: 'misconception' as const, knowledgePoint, title: '容易混淆的地方', content: '注意题目中的关键信息。' },
+      { id: 'step-6', kind: 'summary' as const, knowledgePoint, title: '本章小结', content: '回顾本节的核心方法。' },
+    ],
+    summary: [`${knowledgePoint}要点`],
+    studyTip: '先完成自检，再进入随堂测验。',
+  };
+}
+
+function generatedStudentCourseware(subject: string) {
+  return { courseware: studentCourseware(subject), questions: [{ type: 'choice', question: `${subject}随堂测验题`, options: ['A', 'B'], answer: 'A', explanation: '原创解析' }] };
+}
+
 function createDatabase(): Database.Database {
   const database = new Database(':memory:');
   database.exec(`
@@ -13,7 +36,7 @@ function createDatabase(): Database.Database {
   `);
   initLearningDomainDatabase(database);
   const contents = JSON.stringify([{ id: 'chapter-1', title: '第一单元 大数的认识' }]);
-  for (const [id, title, subject] of [['math-book', '数学四年级上册', '数学'], ['chinese-book', '语文四年级上册', '语文'], ['english-book', '英语四年级上册', '英语']] as const) {
+  for (const [id, title, subject] of [['math-book', '数学四年级上册', '数学'], ['chinese-book', '语文四年级上册', '语文'], ['english-book', '英语四年级上册', '英语'], ['science-book', '科学四年级上册', '科学']] as const) {
     database.prepare(`INSERT INTO books (id, title, subject, grade, ownerId, status, mdPath, tableOfContents) VALUES (?, ?, ?, '四年级', 'shared', 'completed', '/tmp/book.md', ?)`).run(id, title, subject, contents);
   }
   database.prepare(`INSERT INTO external_resources (id, title, subject, grade, knowledgeTagsJson, url, sourceName, durationSeconds, ageLabel, reviewedAt, status, linkHealthStatus, embedStatus, embedUrl, createdAt, updatedAt) VALUES (?, ?, '数学', '四年级', '[]', 'https://source.example/video', '公开来源', 180, '适合 9-11 岁', 1, 'approved', 'healthy', 'allowed', 'https://embed.example/video', 1, 1)`).run('math-video', '大数认识视频');
@@ -49,7 +72,7 @@ test('accepts numeric chapter IDs after browser route parameters convert them to
   }, {
     database,
     readMarkdown: async () => '# 第一单元\n这是足够用于测试的教材章节正文。'.repeat(10),
-    generate: async () => ({ slides: [{ title: '第一单元重点', content: '归纳本单元内容。', notes: '复习。' }] }),
+    generate: async () => generatedStudentCourseware('语文'),
   });
 
   assert.equal(task.generationStatus, 'ready');
@@ -91,14 +114,57 @@ test('rejects direct video task creation without creating a task', async () => {
   assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_tasks WHERE requestKey = 'math-video-task'`).get() as { count: number }).count, 0);
 });
 
-test('archives generated courseware as one textbook task with its original entity link', async () => {
+test('creates a student courseware and its practice quiz for each textbook subject', async () => {
   const database = createDatabase();
-  const task = await createTextbookTask({
-    ownerId: 'child_1', requestKey: 'courseware-task', taskType: 'courseware', userName: '大宝',
+  for (const [bookId, subject] of [['math-book', '数学'], ['english-book', '英语'], ['chinese-book', '语文'], ['science-book', '科学']] as const) {
+    const task = await createTextbookTask({
+      ownerId: 'child_1', requestKey: `courseware-${bookId}`, taskType: 'courseware', userName: '大宝',
+      source: { kind: 'chapter', bookId, chapterIds: ['chapter-1'] },
+    }, { database, readMarkdown: async () => `# 第一单元 ${subject}章节\n这是足够用于测试的教材章节正文。`.repeat(10), generate: async () => generatedStudentCourseware(subject) });
+    const links = database.prepare(`SELECT entityType, role FROM learning_task_links WHERE taskId = ?`).all(task.id) as Array<{ entityType: string; role: string }>;
+    const content = JSON.parse((database.prepare(`SELECT contentJson FROM classroom_items WHERE id = (SELECT entityId FROM learning_task_links WHERE taskId = ? AND role = 'primary')`).get(task.id) as { contentJson: string }).contentJson);
+    assert.equal(task.generationStatus, 'ready');
+    assert.equal(getLearningTask(database, task.id, 'child_1')?.taskType, 'courseware');
+    assert.equal(content.audience, 'student');
+    assert.equal(content.steps.length, 6);
+    assert.deepEqual(new Set(links.map(link => `${link.entityType}:${link.role}`)), new Set(['classroom_courseware:primary', 'classroom_quiz:practice']));
+  }
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items WHERE type = 'courseware'`).get() as { count: number }).count, 4);
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items WHERE type = 'quiz'`).get() as { count: number }).count, 4);
+});
+
+test('rejects invalid student courseware without retaining a courseware or practice quiz', async () => {
+  const database = createDatabase();
+  await assert.rejects(() => createTextbookTask({
+    ownerId: 'child_1', requestKey: 'invalid-courseware', taskType: 'courseware', userName: '大宝',
     source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'] },
-  }, { database, readMarkdown: async () => '# 第一单元 大数的认识\n这是足够用于测试的教材章节正文。'.repeat(10), generate: async () => ({ slides: [{ title: '认识大数', content: '从数位和计数单位理解大数。', notes: '复盘数位顺序。' }] }) });
-  assert.equal(task.generationStatus, 'ready');
-  assert.equal(getLearningTask(database, task.id, 'child_1')?.taskType, 'courseware');
-  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items WHERE type = 'courseware'`).get() as { count: number }).count, 1);
-  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_task_links WHERE taskId = ? AND entityType = 'classroom_courseware'`).get(task.id) as { count: number }).count, 1);
+  }, {
+    database,
+    readMarkdown: async () => '# 第一单元 大数的认识\n这是足够用于测试的教材章节正文。'.repeat(10),
+    generate: async () => ({ courseware: { ...studentCourseware('数学'), steps: studentCourseware('数学').steps.map((step, index) => index === 1 ? { ...step, kind: 'teacherNotes' } : step) }, questions: [{ question: '不会保存的题' }] }),
+  }));
+  const task = database.prepare(`SELECT generationStatus, errorCode FROM learning_tasks WHERE requestKey = 'invalid-courseware'`).get() as { generationStatus: string; errorCode: string };
+  assert.deepEqual(task, { generationStatus: 'failed', errorCode: 'generation_failed' });
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items`).get() as { count: number }).count, 0);
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_task_links`).get() as { count: number }).count, 0);
+});
+
+test('does not duplicate a student courseware task for the same owner and request key', async () => {
+  const database = createDatabase();
+  let generatedCount = 0;
+  const request = {
+    ownerId: 'child_1', requestKey: 'courseware-idempotent', taskType: 'courseware', userName: '大宝',
+    source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'] },
+  };
+  const dependencies = {
+    database,
+    readMarkdown: async () => '# 第一单元 大数的认识\n这是足够用于测试的教材章节正文。'.repeat(10),
+    generate: async () => { generatedCount += 1; return generatedStudentCourseware('数学'); },
+  };
+  const first = await createTextbookTask(request, dependencies);
+  const second = await createTextbookTask(request, dependencies);
+  assert.equal(first.id, second.id);
+  assert.equal(generatedCount, 1);
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items`).get() as { count: number }).count, 2);
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_task_links WHERE taskId = ?`).get(first.id) as { count: number }).count, 2);
 });
