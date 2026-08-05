@@ -141,6 +141,7 @@ node dist/scripts/learningAssistantReset.js --apply --manifest <absolute-manifes
 
 - 两种模式都写入时间戳备份目录：SQLite 备份、待删错题专属文件备份、SHA-256、`manifest.json`。
 - `--dry-run` 不改数据库或文件；`--apply` 只接受同次重新计算一致、上传教材/试卷校验通过且无阻断项的 manifest。
+- 仅 `wrong_problem` 的固定历史前缀 `/opt/hl-os/data/` 可映射至当前数据卷做存在性检查；映射文件缺失时记录为 `delete.files.missing`，apply 不执行文件移动但可删除对应派生记录。其他数据卷外路径一律是阻断项。
 - 成功输出：`runId`、备份路径、manifest 路径、删除课件/测验/模拟试卷/作答/成绩/错题/任务计数、删除文件数与保留源资料校验。
 - 任一保留资料校验失败、待删文件被保留资料引用、未知链接实体、备份校验失败或并发集合变化，均输出 `blocked` 并以非零状态结束，不写数据库或文件。
 
