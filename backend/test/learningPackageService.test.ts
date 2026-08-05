@@ -6,6 +6,7 @@ import {
   createLearningPackage,
   getLearningPackage,
   LearningPackageValidationError,
+  ListeningNotPlayedError,
   requireEnglishListeningGradeProfile,
   updateLearningPackagePlayback,
 } from '../src/services/learningPackageService.js';
@@ -80,6 +81,8 @@ test('creates an original English listening package anchored to chapter text', a
     endpoint: '/api/tts',
     request: { text: content.listening.script, coursewareId: result.id, chunkIdx: 0 },
   });
+  assert.deepEqual(Object.keys(content.audioProfiles), ['slow', 'standard', 'fast']);
+  assert.equal(content.audioProfiles.slow.request.speed, 'slow');
   assert.ok(getLearningPackage(result.id, 'child_1', database));
   assert.equal(getLearningPackage(result.id, 'child_2', database), null);
 });
@@ -144,7 +147,7 @@ test('does not persist listening output that violates its textbook grade profile
   assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 0);
 });
 
-test('persists at most two completed listening plays and submission', async () => {
+test('allows unlimited completed listening plays, records first completion, and gates submission', async () => {
   const database = createDatabase();
   addBook(database, { id: 'english-progress', subject: '英语', toc: [{ id: 'unit-1', title: 'Unit 1 Come on In!' }] });
   const result = await createLearningPackage({ ownerId: 'child_1', bookId: 'english-progress', chapterIds: ['unit-1'], kind: 'english-listening' }, {
@@ -156,9 +159,16 @@ test('persists at most two completed listening plays and submission', async () =
       { id: 'q3', type: 'inference', prompt: 'Question three', answer: 'C', explanation: 'Simple inference.', rubricPoints: ['point'] },
     ] }),
   });
-  assert.equal(updateLearningPackagePlayback(result.id, 'child_1', 'completed', database).completedPlays, 1);
-  assert.equal(updateLearningPackagePlayback(result.id, 'child_1', 'completed', database).canPlay, false);
-  assert.throws(() => updateLearningPackagePlayback(result.id, 'child_1', 'completed', database), LearningPackageValidationError);
+  assert.throws(() => updateLearningPackagePlayback(result.id, 'child_1', 'submit', database), ListeningNotPlayedError);
+  const first = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
+  assert.equal(first.completedPlays, 1);
+  assert.equal(first.canPlay, true);
+  assert.ok(first.firstCompletedAt);
+  const third = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
+  const fourth = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
+  assert.equal(fourth.completedPlays, 3);
+  assert.equal(third.firstCompletedAt, first.firstCompletedAt);
+  assert.equal(fourth.firstCompletedAt, first.firstCompletedAt);
   assert.ok(updateLearningPackagePlayback(result.id, 'child_1', 'submit', database).submittedAt);
 });
 

@@ -67,10 +67,12 @@ WORKDIR /app
 
 # 运行时依赖：
 # - poppler-utils: pdftoppm（PDF 封面提取）
+# - ffmpeg: 英语听力的服务端可控语速渲染与时长校验
 # - cairo/jpeg/pango/giflib: canvas/pdfjs 运行时共享库
 # - python3/make/g++/dev 头文件: 仅当生产依赖中存在 better-sqlite3 等需重新编译的原生模块时需要
 RUN apk add --no-cache \
       poppler-utils \
+      ffmpeg \
       cairo jpeg pango giflib \
       python3 make g++ \
       cairo-dev jpeg-dev pango-dev giflib-dev
@@ -94,6 +96,6 @@ ENV NODE_ENV=production \
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+  CMD node -e "const {execFileSync}=require('child_process'); const filters=execFileSync('ffmpeg',['-hide_banner','-filters'],{encoding:'utf8'}); if(!filters.includes('atempo'))process.exit(1); execFileSync('ffprobe',['-version'],{stdio:'ignore'}); require('http').get('http://localhost:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

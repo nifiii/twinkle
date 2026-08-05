@@ -6,6 +6,7 @@ import {
   updateLearningPackagePlayback,
   isLearningPackageInputError,
   LearningPackageValidationError,
+  ListeningNotPlayedError,
 } from '../services/learningPackageService.js';
 
 const router = Router();
@@ -60,7 +61,12 @@ router.post('/learning-packages/:id/playback', (req: Request, res: Response) => 
     return res.json({ success: true, data });
   } catch (error) {
     if (isLearningPackageInputError(error)) {
-      return res.status(400).json({ success: false, field: error instanceof LearningPackageValidationError ? error.field : 'ownerId', error: error.message });
+      return res.status(400).json({
+        success: false,
+        field: error instanceof LearningPackageValidationError ? error.field : 'ownerId',
+        errorCode: error instanceof ListeningNotPlayedError ? 'listening_not_played' : undefined,
+        error: error.message,
+      });
     }
     console.error('[learning-packages] 播放状态更新失败:', error);
     return res.status(500).json({ success: false, error: '播放状态更新失败，请稍后重试' });

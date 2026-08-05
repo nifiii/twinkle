@@ -39,12 +39,31 @@ test('creates the independent learning-domain schema idempotently', () => {
     'style_profiles',
   ]);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_paper_attempts_owner_paper'").get());
+  const playbackColumns = db.prepare('PRAGMA table_info(learning_package_progress)').all() as Array<{ name: string }>;
+  assert.ok(playbackColumns.some(column => column.name === 'firstCompletedAt'));
   const resourceColumns = db.prepare('PRAGMA table_info(external_resources)').all() as Array<{ name: string }>;
   assert.deepEqual(
     ['title', 'durationSeconds', 'ageLabel', 'linkHealthStatus', 'lastHealthCheckedAt', 'embedStatus', 'embedUrl', 'lastEmbedCheckedAt']
       .every(name => resourceColumns.some(column => column.name === name)),
     true,
   );
+});
+
+test('upgrades the existing playback table by adding firstCompletedAt', () => {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE learning_package_progress (
+      ownerId TEXT NOT NULL,
+      packageId TEXT NOT NULL,
+      completedPlays INTEGER NOT NULL DEFAULT 0,
+      submittedAt INTEGER,
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (ownerId, packageId)
+    );
+  `);
+  initLearningDomainDatabase(db);
+  const columns = db.prepare('PRAGMA table_info(learning_package_progress)').all() as Array<{ name: string }>;
+  assert.ok(columns.some(column => column.name === 'firstCompletedAt'));
 });
 
 test('upgrades existing external resources without treating them as verified', () => {

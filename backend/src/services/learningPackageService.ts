@@ -89,6 +89,13 @@ export interface LearningPackageDependencies {
   generateEnglishListening?: (input: { chapterTitles: string[]; chapterExcerpt: string; textbookGrade: string; gradeProfile: EnglishListeningGradeProfile }) => Promise<EnglishListeningContent>;
 }
 
+export class ListeningNotPlayedError extends LearningPackageValidationError {
+  constructor() {
+    super('event', '请先完整播放听力后再提交');
+    this.name = 'ListeningNotPlayedError';
+  }
+}
+
 function parseChapterIds(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.some(id => typeof id !== 'string' || !id.trim())) {
     throw new LearningPackageValidationError('chapterIds', '至少选择一个有效章节');
@@ -295,13 +302,20 @@ export async function createLearningPackage(
     });
     // Dependency injection is used by task adapters and tests, so validate every result at the persistence boundary.
     const listening = validateEnglishListeningContent(generatedListening, gradeProfile);
+    const audioRequest = { text: listening.script, coursewareId: id, chunkIdx: 0 };
     content = {
       original: true,
       gradeProfile,
       listening,
+      // Kept for the existing reader while T-EL-003 moves the UI to audioProfiles.
       audio: {
         endpoint: '/api/tts',
-        request: { text: listening.script, coursewareId: id, chunkIdx: 0 },
+        request: audioRequest,
+      },
+      audioProfiles: {
+        slow: { label: '慢速', request: { ...audioRequest, speed: 'slow' } },
+        standard: { label: '标准', request: { ...audioRequest, speed: 'standard' } },
+        fast: { label: '加快', request: { ...audioRequest, speed: 'fast' } },
       },
     };
   } else if (kind === 'math-thinking') {
@@ -355,9 +369,18 @@ function requireEnglishListeningPackage(id: unknown, ownerId: string, database: 
 export function getLearningPackageProgress(id: unknown, ownerIdInput: unknown, database: Database.Database = db): Record<string, unknown> {
   const ownerId = parseLearningOwnerId(ownerIdInput);
   const packageId = requireEnglishListeningPackage(id, ownerId, database);
-  const row = database.prepare('SELECT completedPlays, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; submittedAt: number | null } | undefined;
+  const row = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null } | undefined;
   const completedPlays = row?.completedPlays || 0;
-  return { completedPlays, playsRemaining: Math.max(0, 2 - completedPlays), submittedAt: row?.submittedAt || null, canPlay: completedPlays < 2 };
+  const firstCompletedAt = row?.firstCompletedAt || null;
+  return {
+    completedPlays,
+    playsRemaining: null,
+    firstCompletedAt,
+    submittedAt: row?.submittedAt || null,
+    canPlay: true,
+    transcriptUnlocked: firstCompletedAt !== null,
+    questionsUnlocked: firstCompletedAt !== null,
+  };
 }
 
 export function updateLearningPackagePlayback(id: unknown, ownerIdInput: unknown, event: unknown, database: Database.Database = db): Record<string, unknown> {
@@ -366,16 +389,25 @@ export function updateLearningPackagePlayback(id: unknown, ownerIdInput: unknown
   if (event !== 'completed' && event !== 'submit') throw new LearningPackageValidationError('event', '播放事件不支持');
   const now = Date.now();
   const result = database.transaction(() => {
-    const current = database.prepare('SELECT completedPlays, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; submittedAt: number | null } | undefined;
+    const current = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null } | undefined;
     const plays = current?.completedPlays || 0;
-    if (event === 'completed' && plays >= 2) throw new LearningPackageValidationError('event', '完整播放次数已用完');
+    if (event === 'submit' && !current?.firstCompletedAt) throw new ListeningNotPlayedError();
     const nextPlays = event === 'completed' ? plays + 1 : plays;
+    const firstCompletedAt = event === 'completed' ? (current?.firstCompletedAt || now) : (current?.firstCompletedAt || null);
     const submittedAt = event === 'submit' ? (current?.submittedAt || now) : (current?.submittedAt || null);
-    database.prepare(`INSERT INTO learning_package_progress (ownerId, packageId, completedPlays, submittedAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(ownerId, packageId) DO UPDATE SET completedPlays = excluded.completedPlays, submittedAt = excluded.submittedAt, updatedAt = excluded.updatedAt`
-    ).run(ownerId, packageId, nextPlays, submittedAt, now);
-    return { completedPlays: nextPlays, playsRemaining: Math.max(0, 2 - nextPlays), submittedAt, canPlay: nextPlays < 2 };
+    database.prepare(`INSERT INTO learning_package_progress (ownerId, packageId, completedPlays, firstCompletedAt, submittedAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(ownerId, packageId) DO UPDATE SET completedPlays = excluded.completedPlays, firstCompletedAt = excluded.firstCompletedAt, submittedAt = excluded.submittedAt, updatedAt = excluded.updatedAt`
+    ).run(ownerId, packageId, nextPlays, firstCompletedAt, submittedAt, now);
+    return {
+      completedPlays: nextPlays,
+      playsRemaining: null,
+      firstCompletedAt,
+      submittedAt,
+      canPlay: true,
+      transcriptUnlocked: firstCompletedAt !== null,
+      questionsUnlocked: firstCompletedAt !== null,
+    };
   });
   return result();
 }

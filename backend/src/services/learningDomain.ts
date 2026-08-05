@@ -130,6 +130,7 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       ownerId TEXT NOT NULL,
       packageId TEXT NOT NULL,
       completedPlays INTEGER NOT NULL DEFAULT 0,
+      firstCompletedAt INTEGER,
       submittedAt INTEGER,
       updatedAt INTEGER NOT NULL,
       PRIMARY KEY (ownerId, packageId)
@@ -271,6 +272,14 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_export_jobs_paper_variant
       ON export_jobs(paperId, variant, createdAt DESC);
   `);
+
+  // Why: deployed databases already have this table. The column is additive so
+  // old playback records remain readable while the first-completion gate moves
+  // from a play-count limit to a durable timestamp.
+  const progressColumns = db.prepare('PRAGMA table_info(learning_package_progress)').all() as Array<{ name: string }>;
+  if (!progressColumns.some(column => column.name === 'firstCompletedAt')) {
+    db.exec('ALTER TABLE learning_package_progress ADD COLUMN firstCompletedAt INTEGER');
+  }
 
   const attemptColumns = db.prepare('PRAGMA table_info(paper_attempts)').all() as Array<{ name: string }>;
   if (!attemptColumns.some(column => column.name === 'reviewSnapshotJson')) {
