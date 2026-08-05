@@ -137,7 +137,7 @@ function originalPaperPrompt(input: Record<string, unknown>) {
 async function generateOriginalPaper(input: Record<string, unknown>): Promise<unknown> {
   const apiKey = process.env.ARK_API_KEY; const model = process.env.ARK_MODEL_ID;
   if (!apiKey || !model) throw new Error('原创试卷生成服务未配置');
-  const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3' });
+  const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3', timeout: 120_000, maxRetries: 0 });
   const prompt = originalPaperPrompt(input);
   const request = (retry: boolean) => client.chat.completions.create({
     model,

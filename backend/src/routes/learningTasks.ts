@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import db from '../services/databaseService.js';
 import { LearningOwnerContextError, readLearningFeatureFlags } from '../services/learningDomain.js';
-import { LearningTaskValidationError, retryLearningTask } from '../services/learningTaskService.js';
+import { LearningTaskValidationError } from '../services/learningTaskService.js';
 import { getClassroomTask, learningTaskTargetExists, listClassroomTasks, parseLegacyTaskReference } from '../services/classroomTaskQueryService.js';
 import { createWrongReviewTask, listWrongProblemCandidates } from '../services/wrongReviewService.js';
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
@@ -94,10 +94,20 @@ router.get('/learning-tasks/:id', (req: Request, res: Response) => {
     return res.json({ success: true, data: task });
   } catch (error) { return fail(error, res); }
 });
-router.post('/learning-tasks/:id/retry', (req: Request, res: Response) => {
+router.post('/learning-tasks/:id/retry', async (req: Request, res: Response) => {
   if (!enabled(res)) return;
   try {
-    const task = retryLearningTask(db, req.params.id, req.body?.ownerId);
+    const current = getClassroomTask(db, req.params.id, req.body?.ownerId);
+    if (!current || current.source !== 'task' || current.sourceSnapshot.sourceType !== 'chapter' || !current.sourceSnapshot.bookId || !current.sourceSnapshot.chapterIds?.length) {
+      throw new LearningTaskValidationError('taskId', '当前学习任务不支持重新生成');
+    }
+    const task = await createTextbookTask({
+      ownerId: req.body?.ownerId,
+      userName: req.body?.userName,
+      retryTaskId: req.params.id,
+      taskType: current.taskType,
+      source: { kind: 'chapter', bookId: current.sourceSnapshot.bookId, chapterIds: current.sourceSnapshot.chapterIds },
+    });
     const detail = getClassroomTask(db, task.id, req.body?.ownerId);
     if (!detail) throw new Error('学习任务重试后无法读取');
     return res.json({ success: true, data: taskSummary(detail) });

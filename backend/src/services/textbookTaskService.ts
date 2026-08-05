@@ -5,7 +5,7 @@ import OpenAI from 'openai';
 import db from './databaseService.js';
 import { createLearningPackage, LearningPackageKind } from './learningPackageService.js';
 import { createAssessmentBlueprint, createAssessmentPaper } from './assessmentPaperService.js';
-import { LearningTaskValidationError, LearningTaskType, createLearningTask, completeLearningTask, updateLearningTaskGenerationStatus } from './learningTaskService.js';
+import { LearningTaskValidationError, LearningTaskType, createLearningTask, completeLearningTask, getLearningTask, retryLearningTask, updateLearningTaskGenerationStatus } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 import { normalizeSubject } from '../utils/subject.js';
 
@@ -47,6 +47,13 @@ type StudentCourseware = {
 const STUDENT_COURSEWARE_STEP_KINDS = new Set<StudentCoursewareStep['kind']>([
   'objective', 'explanation', 'example', 'self_check', 'misconception', 'summary',
 ]);
+const STUDENT_ACTION_LABEL: Record<TextbookAction, string> = {
+  courseware: '学生自学课件',
+  classroom_quiz: '随堂测验',
+  english_listening: '英语听力',
+  math_thinking: '思维训练',
+  assessment: '模拟考试',
+};
 
 function json<T>(value: string | null, fallback: T): T { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } }
 function text(value: unknown, field: string, label: string, max = 128): string {
@@ -123,7 +130,7 @@ export function validateStudentCourseware(value: unknown): StudentCourseware {
 async function defaultGenerate(input: { action: TextbookAction; subject: string; chapterTitles: string[]; excerpt: string }): Promise<{ courseware?: unknown; questions?: any[] }> {
   const apiKey = process.env.ARK_API_KEY; const model = process.env.ARK_MODEL_ID;
   if (!apiKey || !model) throw new Error('ARK_API_KEY 或 ARK_MODEL_ID 未配置');
-  const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3' });
+  const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3', timeout: 120_000, maxRetries: 0 });
   const isCourseware = input.action === 'courseware';
   const prompt = isCourseware
     ? `基于教材章节生成小学生可独立完成的原创自学课件和同章节随堂测验。学科：${input.subject}；章节：${input.chapterTitles.join('、')}。仅输出 JSON 对象：{"courseware":{"schemaVersion":1,"audience":"student","objectives":["..."],"steps":[{"id":"step-1","kind":"objective|explanation|example|self_check|misconception|summary","knowledgePoint":"...","title":"...","content":"...","example":{"prompt":"...","walkthrough":["..."],"answer":"..."},"selfCheck":{"id":"check-1","prompt":"...","options":["..."],"answer":"...","explanation":"..."}}],"summary":["..."],"studyTip":"..."},"questions":[{"type":"...","question":"...","answer":"...","explanation":"...","options":["..."]}]}。步骤必须 6 至 10 个，至少有讲解、示例、自检、易错提醒和小结；禁止教师话术、教案、板书、家长指导；不复述教材全文。章节摘录：${input.excerpt.slice(0, 6000)}`
@@ -168,8 +175,22 @@ export async function createTextbookTask(request: Record<string, unknown>, depen
   if (action === 'assessment' && examMode === 'olympiad') {
     throw new TextbookTaskUnavailableError('capability_unavailable', '奥数模拟考试不支持教材章节，请从奥数资料入口创建');
   }
-  const title = `${chapters.map(chapter => chapter.title).join('、')}·${action}`;
-  const { task, created } = createLearningTask(database, { ownerId, requestKey: request.requestKey, taskType: taskType(action), sourceType: 'chapter', subject, grade: book.grade || '未标注年级', title, bookId: book.id, chapterIds: chapters.map(chapter => chapter.id) });
+  const title = `${chapters.map(chapter => chapter.title).join('、')}·${STUDENT_ACTION_LABEL[action]}`;
+  const retryTaskId = typeof request.retryTaskId === 'string' ? request.retryTaskId.trim() : '';
+  let task: ReturnType<typeof createLearningTask>['task'];
+  let created: boolean;
+  if (retryTaskId) {
+    if (action === 'assessment') throw new LearningTaskValidationError('taskId', '历史模拟考试未保存出题条件，请重新选择条件创建');
+    const existing = getLearningTask(database, retryTaskId, ownerId);
+    if (!existing || existing.taskType !== taskType(action) || existing.sourceType !== 'chapter' || existing.bookId !== book.id
+      || JSON.stringify(existing.chapterIds) !== JSON.stringify(chapters.map(chapter => chapter.id))) {
+      throw new LearningTaskValidationError('taskId', '重试任务与当前教材章节不一致');
+    }
+    task = retryLearningTask(database, retryTaskId, ownerId);
+    created = true;
+  } else {
+    ({ task, created } = createLearningTask(database, { ownerId, requestKey: request.requestKey, taskType: taskType(action), sourceType: 'chapter', subject, grade: book.grade || '未标注年级', title, bookId: book.id, chapterIds: chapters.map(chapter => chapter.id) }));
+  }
   if (!created) return { id: task.id, generationStatus: task.generationStatus };
   try {
     updateLearningTaskGenerationStatus(database, task.id, 'running');

@@ -348,3 +348,19 @@ export function retryLearningTask(database: Database.Database, taskId: string, o
   if (!retried) throw new Error('学习任务重试后无法读取');
   return toRecord(retried);
 }
+
+export function expireStaleLearningTasks(database: Database.Database, ownerId: unknown, now = Date.now(), maxRunningMs = 5 * 60_000): number {
+  const owner = parseLearningOwnerId(ownerId);
+  const stale = database.prepare(`
+    SELECT id FROM learning_tasks
+    WHERE ownerId = ? AND generationStatus = 'running' AND updatedAt <= ?
+  `).all(owner, now - maxRunningMs) as Array<{ id: string }>;
+  for (const task of stale) {
+    updateLearningTaskGenerationStatus(database, task.id, 'failed', {
+      errorCode: 'generation_timeout',
+      errorMessage: '生成超过 5 分钟未完成，请重新生成',
+      now,
+    });
+  }
+  return stale.length;
+}

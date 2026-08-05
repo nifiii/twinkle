@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { initLearningDomainDatabase } from '../src/services/learningDomain.js';
-import { getLearningTask } from '../src/services/learningTaskService.js';
+import { createLearningTask, getLearningTask, updateLearningTaskGenerationStatus } from '../src/services/learningTaskService.js';
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../src/services/textbookTaskService.js';
 
 function studentCourseware(subject: string) {
@@ -167,4 +167,28 @@ test('does not duplicate a student courseware task for the same owner and reques
   assert.equal(generatedCount, 1);
   assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items`).get() as { count: number }).count, 2);
   assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_task_links WHERE taskId = ?`).get(first.id) as { count: number }).count, 2);
+});
+
+test('retries a failed textbook task on the same task record and uses a student-facing title', async () => {
+  const database = createDatabase();
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'retry-courseware', taskType: 'courseware', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '大数的认识·学生自学课件', bookId: 'math-book', chapterIds: ['chapter-1'],
+  });
+  updateLearningTaskGenerationStatus(database, task.id, 'running');
+  updateLearningTaskGenerationStatus(database, task.id, 'failed', { errorCode: 'generation_failed', errorMessage: 'temporary failure' });
+
+  const retried = await createTextbookTask({
+    ownerId: 'child_1', retryTaskId: task.id, taskType: 'courseware',
+    source: { kind: 'chapter', bookId: 'math-book', chapterIds: ['chapter-1'] },
+  }, {
+    database,
+    readMarkdown: async () => '# 第一单元 大数的认识\n这是足够用于测试的教材章节正文。'.repeat(10),
+    generate: async () => generatedStudentCourseware('数学'),
+  });
+
+  assert.equal(retried.id, task.id);
+  assert.equal(retried.generationStatus, 'ready');
+  assert.equal(getLearningTask(database, task.id, 'child_1')?.title, '大数的认识·学生自学课件');
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM learning_tasks WHERE id = ?`).get(task.id) as { count: number }).count, 1);
 });

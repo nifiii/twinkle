@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { getLearningTask, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks, WrongProblemRef } from './learningTaskService.js';
+import { expireStaleLearningTasks, getLearningTask, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks, WrongProblemRef } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 const PRIMARY_LINK_ORDER = ['primary', 'explanation', 'practice', 'resource', 'paper'];
@@ -287,9 +287,15 @@ export function listClassroomTasks(database: Database.Database, ownerId: unknown
   const owner = parseLearningOwnerId(ownerId);
   const limit = Math.min(Math.max(filters.limit || 20, 1), 100);
   const cursor = decodeCursor(filters.cursor);
+  expireStaleLearningTasks(database, owner);
+  const tasks = listLearningTasks(database, owner).map(task => toTaskSummary(database, task));
+  // New tasks reference the original entity directly. Keep legacy rows only for entities
+  // that have not yet been adopted, otherwise students see the same work twice.
+  const linkedTargets = new Set(tasks.flatMap(task => readTaskLinks(database, task.id))
+    .map(link => `${link.entityType}:${link.entityId}`));
   const items = [
-    ...listLearningTasks(database, owner).map(task => toTaskSummary(database, task)),
-    ...legacySummaries(database, owner),
+    ...tasks,
+    ...legacySummaries(database, owner).filter(item => !item.primaryLink || !linkedTargets.has(`${item.primaryLink.entityType}:${item.primaryLink.entityId}`)),
   ]
     .filter(item => matchesFilters(item, filters))
     .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))

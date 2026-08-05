@@ -65,6 +65,38 @@ test('resolves legacy targets read-only and detects removed primary entities', (
   assert.equal(getClassroomTask(database, 'legacy:learning_package:package-1', 'child_1'), null);
 });
 
+test('hides legacy rows once their entities are linked to a unified task', () => {
+  const database = createDatabase();
+  seedLegacyContent(database);
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'linked-legacy', taskType: 'courseware', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '第一单元·学生自学课件', bookId: 'book-1', chapterIds: ['1'],
+  }, 1500);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1600 });
+  completeLearningTask(database, task.id, [
+    { entityType: 'classroom_courseware', entityId: 'classroom-1', role: 'primary' },
+    { entityType: 'learning_package', entityId: 'package-1', role: 'resource' },
+  ], 1700);
+
+  const items = listClassroomTasks(database, 'child_1').items;
+  assert.equal(items.filter(item => item.primaryLink?.entityId === 'classroom-1').length, 1);
+  assert.equal(items.filter(item => item.primaryLink?.entityId === 'package-1').length, 0);
+});
+
+test('changes generation stuck beyond five minutes into a retryable failure', () => {
+  const database = createDatabase();
+  const now = Date.now();
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'stale-running', taskType: 'math_thinking', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '大数的认识·思维训练', bookId: 'book-1', chapterIds: ['1'],
+  }, now - 6 * 60_000);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: now - 6 * 60_000 });
+
+  const item = listClassroomTasks(database, 'child_1').items.find(value => value.id === task.id);
+  assert.equal(item?.generationStatus, 'failed');
+  assert.equal(getClassroomTask(database, task.id, 'child_1')?.errorCode, 'generation_timeout');
+});
+
 test('indexes a historical classroom quiz result and resolves its native detail reference', () => {
   const database = createDatabase();
   database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, correctCount INTEGER, total INTEGER, percentage INTEGER, status TEXT, createdAt INTEGER)`);

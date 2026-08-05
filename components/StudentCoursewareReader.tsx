@@ -41,6 +41,14 @@ function isStudentCourseware(value: unknown): value is StudentCourseware {
     && typeof courseware.studyTip === 'string';
 }
 
+function hasExample(value: StudentCoursewareStep['example']): value is NonNullable<StudentCoursewareStep['example']> {
+  return Boolean(value && typeof value.prompt === 'string' && Array.isArray(value.walkthrough) && typeof value.answer === 'string');
+}
+
+function hasSelfCheck(value: StudentCoursewareStep['selfCheck']): value is NonNullable<StudentCoursewareStep['selfCheck']> {
+  return Boolean(value && typeof value.id === 'string' && typeof value.prompt === 'string' && typeof value.answer === 'string' && typeof value.explanation === 'string');
+}
+
 const STEP_KIND_LABEL: Record<StudentCoursewareStep['kind'], string> = {
   objective: '学习目标', explanation: '分步讲解', example: '跟着示例做', self_check: '即时自检', misconception: '易错提醒', summary: '本节小结',
 };
@@ -79,7 +87,7 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
   if (retired) return <section className="mx-auto max-w-3xl py-16 text-center" aria-labelledby="retired-content-title"><h1 id="retired-content-title" className="text-xl font-semibold text-cyber-text">该学习内容已下线</h1><button type="button" onClick={onBack} className="mt-8 min-h-11 rounded-lg border border-neon-blue px-4 text-sm font-medium text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue">返回智慧课堂</button></section>;
   if (error || !courseware || !step) return <section className="mx-auto max-w-3xl space-y-5 py-12"><button type="button" onClick={onBack} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button><div role="alert" className="flex gap-2 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"><AlertCircle size={18} />{error || '学习内容无法读取'}</div></section>;
 
-  const check = step.selfCheck;
+  const check = hasSelfCheck(step.selfCheck) ? step.selfCheck : undefined;
   const answer = check ? answers[check.id] || '' : '';
   const checkSubmitted = check ? Boolean(checked[check.id]) : false;
   const isLast = index === courseware.steps.length - 1;
@@ -95,7 +103,7 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
     <article className="rounded-xl border border-cyber-border/60 bg-cyber-surface/60 p-5 sm:p-6">
       <div className="flex flex-wrap items-center gap-2"><span className="rounded-md bg-neon-blue/10 px-2 py-1 text-xs font-medium text-neon-blue">{STEP_KIND_LABEL[step.kind]}</span><span className="text-xs text-cyber-muted">{step.knowledgePoint}</span></div>
       <h2 className="mt-4 text-lg font-semibold text-cyber-text">{step.title}</h2><p className="mt-3 whitespace-pre-wrap text-base leading-7 text-cyber-text">{step.content}</p>
-      {step.example && <section className="mt-5 rounded-lg border border-cyber-border/60 bg-white/5 p-4"><h3 className="font-medium text-cyber-text">{step.example.prompt}</h3><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-cyber-muted">{step.example.walkthrough.map((item, stepIndex) => <li key={stepIndex}>{item}</li>)}</ol><p className="mt-3 border-l-2 border-neon-blue pl-3 text-sm text-cyber-text">答案：{step.example.answer}</p></section>}
+      {hasExample(step.example) && <section className="mt-5 rounded-lg border border-cyber-border/60 bg-white/5 p-4"><h3 className="font-medium text-cyber-text">{step.example.prompt}</h3><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-cyber-muted">{step.example.walkthrough.map((item, stepIndex) => <li key={stepIndex}>{item}</li>)}</ol><p className="mt-3 border-l-2 border-neon-blue pl-3 text-sm text-cyber-text">答案：{step.example.answer}</p></section>}
       {check && <section className="mt-5 rounded-lg border border-neon-blue/30 bg-neon-blue/5 p-4" aria-labelledby={`check-title-${check.id}`}><div className="flex items-center gap-2"><ClipboardCheck size={18} className="text-neon-blue" /><h3 id={`check-title-${check.id}`} className="font-medium text-cyber-text">{check.prompt}</h3></div>{check.options?.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{check.options.map(option => <label key={option} className="flex min-h-10 items-center gap-2 rounded-lg border border-cyber-border/60 px-3 text-sm text-cyber-text"><input type="radio" name={check.id} value={option} checked={answer === option} onChange={() => setAnswers(previous => ({ ...previous, [check.id]: option }))} disabled={checkSubmitted} />{option}</label>)}</div> : <input value={answer} onChange={event => setAnswers(previous => ({ ...previous, [check.id]: event.target.value }))} disabled={checkSubmitted} className="mt-4 min-h-11 w-full rounded-lg border border-cyber-border/60 bg-white/5 px-3 text-sm text-cyber-text focus:outline-none focus:ring-2 focus:ring-neon-blue" aria-label="填写自检答案" />}{!checkSubmitted ? <button type="button" disabled={!answer.trim()} onClick={() => setChecked(previous => ({ ...previous, [check.id]: true }))} className="mt-4 min-h-10 rounded-lg border border-neon-blue px-3 text-sm font-medium text-neon-blue disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-neon-blue">查看反馈</button> : <div role="status" className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"><CheckCircle2 className="mr-2 inline" size={16} />{answer.trim() === check.answer.trim() ? '回答正确。' : `参考答案：${check.answer}。`}{check.explanation}</div>}</section>}
       {step.kind === 'misconception' && <div className="mt-5 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><Lightbulb size={18} className="shrink-0" />先自己判断，再回到题目逐项核对。</div>}
       {isLast && <section className="mt-5 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"><h3 className="font-medium">完成小结</h3><ul className="mt-2 list-disc space-y-1 pl-5">{courseware.summary.map(item => <li key={item}>{item}</li>)}</ul><p className="mt-3">学习建议：{courseware.studyTip}</p></section>}
