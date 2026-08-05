@@ -104,12 +104,17 @@ function parsePaths(value: unknown): string[] {
   }
 }
 
-function dataPath(dataDir: string, value: string, allowLegacyWrongProblemPath: boolean): string | null {
+function dataPath(dataDir: string, value: string, allowLegacyWrongProblemPath: boolean, field: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return null;
   // This prefix is a verified retired container mount. Restricting it to wrong-problem cleanup
   // lets missing derived attachments be audited and deleted without accepting arbitrary host paths.
   if (allowLegacyWrongProblemPath && value.startsWith(LEGACY_WRONG_PROBLEM_DATA_PREFIX)) {
     return path.resolve(dataDir, value.slice(LEGACY_WRONG_PROBLEM_DATA_PREFIX.length));
+  }
+  // Book records expose archived cover files through the site's /covers static route.
+  // Resolve only this field-specific URL back to its storage location for retention checks.
+  if (field === 'coverPath' && value.startsWith('/covers/')) {
+    return path.resolve(dataDir, 'obsidian', 'covers', value.slice('/covers/'.length));
   }
   if (value.startsWith('/data/')) return path.resolve(dataDir, value.slice('/data/'.length));
   if (path.isAbsolute(value)) return path.resolve(value);
@@ -139,7 +144,7 @@ function collectReferences(rows: Row[], dataDir: string, blockers: ResetManifest
 
     for (const [field, raw] of fields) {
       if (typeof raw !== 'string' || !raw.trim()) continue;
-      const resolved = dataPath(dataDir, raw, source === 'wrong');
+      const resolved = dataPath(dataDir, raw, source === 'wrong', field);
       if (!resolved || !withinDataDir(dataDir, resolved)) {
         blockers.push({
           code: 'unsafe_file_path',

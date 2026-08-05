@@ -200,3 +200,23 @@ test('dry-run keeps retained scanned-item paths outside the data volume blocked'
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('dry-run resolves public book cover URLs to their archived data files', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'twinkle-learning-reset-cover-url-'));
+  const database = new Database(path.join(dataDir, 'hlos.db'));
+  const coverPath = path.join(dataDir, 'obsidian', 'covers', 'math-cover.jpg');
+  try {
+    await fs.mkdir(path.dirname(coverPath), { recursive: true });
+    await fs.writeFile(coverPath, 'cover');
+    database.exec('CREATE TABLE books (id TEXT PRIMARY KEY, filePath TEXT, mdPath TEXT, coverPath TEXT);');
+    database.prepare('INSERT INTO books VALUES (?, ?, ?, ?)').run('book-cover', null, null, '/covers/math-cover.jpg');
+
+    const manifest = await runLearningAssistantResetDryRun({ database, dataDir, now: new Date('2026-08-04T00:00:00.000Z') });
+
+    assert.deepEqual(manifest.blockers, []);
+    assert.equal(manifest.retain.files.some(file => file.recordId === 'book-cover' && file.field === 'coverPath' && file.path === coverPath), true);
+  } finally {
+    database.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});

@@ -33,7 +33,7 @@ node dist/scripts/learningAssistantReset.js --dry-run
 - `metadata.json` 备份及 SHA-256（若存在）；
 - `wrong-files/` 中的候选错题专属文件；
 - `manifest.json` 的删除集合、保留集合、共享文件和 `blockers`。
-- `delete.files.missing`：仅允许固定旧前缀 `/opt/hl-os/data/` 的 `wrong_problem` 映射后缺失；不得出现教材、上传试卷、其他扫描资料或任意未知卷外路径。
+- `delete.files.missing`：仅允许固定旧前缀 `/opt/hl-os/data/` 的 `wrong_problem` 映射后缺失；教材 `coverPath=/covers/<filename>` 必须映射并验证 `DATA_DIR/obsidian/covers/<filename>`，不得以 URL 形式跳过检查；不得出现教材、上传试卷、其他扫描资料或任意未知卷外路径。
 
 必须满足：
 
