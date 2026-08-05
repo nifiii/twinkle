@@ -6,8 +6,11 @@ import {
   createLearningPackage,
   getLearningPackage,
   LearningPackageValidationError,
+  requireEnglishListeningGradeProfile,
   updateLearningPackagePlayback,
 } from '../src/services/learningPackageService.js';
+
+const developmentScript = 'Hello, I am Mia. Welcome to our classroom today. Our teacher has a new book about school friends. We open the book and look at its bright pictures. Tom reads the first page. Anna listens carefully. Then we say hello to every friend in our class. Before the lesson starts, we put our pencils on the desk and smile together. The teacher asks us to listen for one important word in the story and choose the correct answer after we hear it.';
 
 function createDatabase(): Database.Database {
   const database = new Database(':memory:');
@@ -56,18 +59,23 @@ test('creates an original English listening package anchored to chapter text', a
   }, {
     database,
     readMarkdown: async () => '# Unit 1\nThis chapter teaches classroom greetings and simple introductions for young learners.',
-    generateEnglishListening: async () => ({
-      script: 'Hello, I am Mia. Welcome to our classroom.',
+    generateEnglishListening: async input => {
+      assert.equal(input.textbookGrade, '小学四年级上册');
+      assert.equal(input.gradeProfile.id, 'g3_4');
+      return {
+      script: developmentScript,
       questions: [
-        { id: 'q1', prompt: 'Who is speaking?', options: ['Mia', 'Tom'], answer: 'Mia', rubricPoints: ['识别人物'] },
-        { id: 'q2', prompt: 'Where are they?', options: ['Classroom', 'Park'], answer: 'Classroom', rubricPoints: ['识别场景'] },
+        { id: 'q1', type: 'fact', prompt: 'Who is speaking?', options: ['Mia', 'Tom'], answer: 'Mia', explanation: 'Mia introduces herself.', rubricPoints: ['识别人物'] },
+        { id: 'q2', type: 'fact', prompt: 'Where are they?', options: ['Classroom', 'Park'], answer: 'Classroom', explanation: 'They are in class.', rubricPoints: ['识别场景'] },
+        { id: 'q3', type: 'inference', prompt: 'What do they do before class?', options: ['Read', 'Run'], answer: 'Read', explanation: 'They read the new book.', rubricPoints: ['理解活动'] },
       ],
-    }),
+    }; },
   });
 
   const content = result.content as Record<string, any>;
   assert.equal(content.original, true);
-  assert.equal(content.listening.script, 'Hello, I am Mia. Welcome to our classroom.');
+  assert.equal(content.gradeProfile.id, 'g3_4');
+  assert.equal(content.gradeProfile.defaultSpeed, 'standard');
   assert.deepEqual(content.audio, {
     endpoint: '/api/tts',
     request: { text: content.listening.script, coursewareId: result.id, chunkIdx: 0 },
@@ -84,13 +92,56 @@ test('accepts a numeric English catalog ID submitted by the browser as text', as
   }, {
     database,
     readMarkdown: async () => '# Unit 1 Come on In!\nThis source chapter contains enough classroom greeting, introduction and dialogue practice context to generate a short original listening exercise.',
-    generateEnglishListening: async () => ({ script: 'Welcome to class.', questions: [
-      { id: 'q1', prompt: 'Where are they?', answer: 'Classroom', rubricPoints: ['识别场景'] },
-      { id: 'q2', prompt: 'Who is speaking?', answer: 'Teacher', rubricPoints: ['识别人物'] },
+    generateEnglishListening: async () => ({ script: developmentScript, questions: [
+      { id: 'q1', type: 'fact', prompt: 'Where are they?', answer: 'Classroom', explanation: 'They are starting an English lesson.', rubricPoints: ['识别场景'] },
+      { id: 'q2', type: 'fact', prompt: 'Who is speaking?', answer: 'Teacher', explanation: 'The teacher says hello.', rubricPoints: ['识别人物'] },
+      { id: 'q3', type: 'inference', prompt: 'What will they do?', answer: 'Listen', explanation: 'They listen to a story.', rubricPoints: ['理解活动'] },
     ] }),
   });
   assert.deepEqual(result.chapterIds, ['1']);
   assert.equal(result.status, 'completed');
+});
+
+test('maps textbook grades to the three fixed English listening profiles', () => {
+  assert.equal(requireEnglishListeningGradeProfile('小学一年级上册').id, 'g1_2');
+  assert.equal(requireEnglishListeningGradeProfile('三年级下册').id, 'g3_4');
+  assert.equal(requireEnglishListeningGradeProfile('小学六年级').id, 'g5_6');
+  assert.throws(() => requireEnglishListeningGradeProfile('适用儿童'), LearningPackageValidationError);
+});
+
+test('rejects English listening before generation when the textbook grade is not one of grades 1 through 6', async () => {
+  const database = createDatabase();
+  addBook(database, { id: 'english-without-grade', subject: '英语', grade: '适用儿童', toc: [{ id: 'unit-1', title: 'Unit One' }] });
+  let generatorCalled = false;
+
+  await assert.rejects(
+    () => createLearningPackage({ ownerId: 'child_1', bookId: 'english-without-grade', chapterIds: ['unit-1'], kind: 'english-listening' }, {
+      database,
+      generateEnglishListening: async () => { generatorCalled = true; throw new Error('must not run'); },
+    }),
+    (error: unknown) => error instanceof LearningPackageValidationError && error.field === 'grade',
+  );
+
+  assert.equal(generatorCalled, false);
+  assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 0);
+});
+
+test('does not persist listening output that violates its textbook grade profile', async () => {
+  const database = createDatabase();
+  addBook(database, { id: 'english-grade-one', subject: '英语', grade: '小学一年级上册', toc: [{ id: 'unit-1', title: 'Unit One' }] });
+
+  await assert.rejects(
+    () => createLearningPackage({ ownerId: 'child_1', bookId: 'english-grade-one', chapterIds: ['unit-1'], kind: 'english-listening' }, {
+      database,
+      readMarkdown: async () => '# Unit One\nThis source chapter contains enough original classroom learning context for the generated listening exercise.',
+      generateEnglishListening: async () => ({ script: developmentScript, questions: [
+        { id: 'q1', type: 'fact', prompt: 'Question one', answer: 'A', explanation: 'Fact.', rubricPoints: ['point'] },
+        { id: 'q2', type: 'inference', prompt: 'Question two', answer: 'B', explanation: 'Inference is not allowed for Grade One.', rubricPoints: ['point'] },
+      ] }),
+    }),
+  );
+
+  assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 0);
 });
 
 test('persists at most two completed listening plays and submission', async () => {
@@ -99,9 +150,10 @@ test('persists at most two completed listening plays and submission', async () =
   const result = await createLearningPackage({ ownerId: 'child_1', bookId: 'english-progress', chapterIds: ['unit-1'], kind: 'english-listening' }, {
     database,
     readMarkdown: async () => '# Unit 1\nEnough content for listening progress verification in this source chapter.',
-    generateEnglishListening: async () => ({ script: 'A short original script.', questions: [
-      { id: 'q1', prompt: 'Question one', answer: 'A', rubricPoints: ['point'] },
-      { id: 'q2', prompt: 'Question two', answer: 'B', rubricPoints: ['point'] },
+    generateEnglishListening: async () => ({ script: developmentScript, questions: [
+      { id: 'q1', type: 'fact', prompt: 'Question one', answer: 'A', explanation: 'First fact.', rubricPoints: ['point'] },
+      { id: 'q2', type: 'fact', prompt: 'Question two', answer: 'B', explanation: 'Second fact.', rubricPoints: ['point'] },
+      { id: 'q3', type: 'inference', prompt: 'Question three', answer: 'C', explanation: 'Simple inference.', rubricPoints: ['point'] },
     ] }),
   });
   assert.equal(updateLearningPackagePlayback(result.id, 'child_1', 'completed', database).completedPlays, 1);
