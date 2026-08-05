@@ -35,6 +35,10 @@ FROM node:20-alpine AS backend-builder
 
 WORKDIR /app
 
+# Why: the backend builder installs native-module toolchains before the
+# production stage exists, so it must use the same reachable Alpine mirror.
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # better-sqlite3 / canvas / pdfjs-dist 等原生模块的编译依赖
 RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
 
@@ -70,6 +74,9 @@ WORKDIR /app
 # - ffmpeg: 英语听力的服务端可控语速渲染与时长校验
 # - cairo/jpeg/pango/giflib: canvas/pdfjs 运行时共享库
 # - python3/make/g++/dev 头文件: 仅当生产依赖中存在 better-sqlite3 等需重新编译的原生模块时需要
+# Why: Docker BuildKit 在当前网络到 Alpine 默认 CDN 的依赖下载会停滞；
+# 阿里云镜像源已在同一容器网络下验证可达，避免构建层无限等待。
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache \
       poppler-utils \
       ffmpeg \
