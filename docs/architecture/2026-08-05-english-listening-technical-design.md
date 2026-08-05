@@ -18,7 +18,7 @@ books.grade + selected chapter excerpt
   -> original-listening generator (profile constrained JSON)
   -> learning_packages.contentJson (immutable profile + content + audio profiles)
   -> ControlledRateTtsAdapter (base audio + verified speed render + speed-specific cache)
-  -> learning_package_progress (completed plays, firstCompletedAt, submittedAt)
+  -> learning_package_progress (completed plays, firstCompletedAt, submittedAt, answersJson)
   -> task detail / LearningPackage UI
 ```
 
@@ -29,13 +29,14 @@ books.grade + selected chapter excerpt
 | `learningPackageService` | 解析教材年级、建立档位、校验模型输出、无上限更新播放进度。 | 教材/章节可见性、英语学科校验、原创与正文最小长度要求。 |
 | `tts` 路由 | 将英语听力的受控速度档交给 `ControlledRateTtsAdapter`，速度纳入缓存身份。 | 不暴露密钥、不接受客户端自定义任意倍率或供应商配置。 |
 | `ControlledRateTtsAdapter` | 用标准母音频渲染、校验和缓存三档 MP3。 | 不生成脚本、不判断题目解锁、不改变课件朗读。 |
-| `learning_package_progress` | 追加 `firstCompletedAt`；保留 `completedPlays` 作为分析计数。 | `ownerId + packageId` 唯一、`submittedAt` 幂等。 |
+| `learning_package_progress` | 追加 `firstCompletedAt` 与 `answersJson`；保留 `completedPlays` 作为分析计数。 | `ownerId + packageId` 唯一、`submittedAt` 幂等、首个提交的答案快照不可覆盖。 |
 | `LearningPackage` | 服务端状态驱动解锁与速度切换。 | 不前端推导年级、答案或权限。 |
 
 ### 不变量与迁移
 
 - `gradeProfile` 写进 `contentJson`，内容创建后不可修改。旧包读取时从 `books.grade` 解析回退档，无法解析则使用兼容的 `legacy` 标识和标准速度。
 - `firstCompletedAt IS NOT NULL` 是题目与文本解锁唯一服务端条件。`completedPlays` 不再限制 `canPlay`，并允许递增。
+- `answersJson` 只在首次成功 `submit` 时写入，结构为 `{ "questionId": "student answer" }`。服务端仅接受当前听力包中已存在的题目 ID；它不判对错、不写分数，也不调用模型批改。旧进度记录读取为无快照，直到学生首次提交。
 - TTS 速度只接受 `slow`、`standard`、`fast` 三个枚举，分别映射 `0.75x`、`1.00x`、`1.10x`。`ControlledRateTtsAdapter` 先合成标准母音频，再用镜像内 FFmpeg `atempo` 渲染慢速/加快档；不得直接信任客户端传入倍率、音色或供应商参数。
 - 缓存身份至少包含包 ID、脚本文本哈希、速度档、TTS 配置版本与片段号。速度不一致、脚本变化或配置升级均不能命中旧缓存。
 - 模型结构必须返回 `script`、题目、答案、解析、评分点；再由服务端验证与档位限制一致。校验失败时事务回滚，不插入学习包或任务链接。

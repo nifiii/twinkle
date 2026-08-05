@@ -17,7 +17,7 @@
 | `LearningPackage` | 学习包、`playback`、`audioProfiles` | 页面状态、三档速度选择、题目/文本门控、提交反馈 | 推导年级档、组装模型提示词、计算答案。 |
 | `ListeningPlayer` | 当前速度档、音频请求、播放状态 | 播放/暂停/重播、切换 0.75x/1.00x/1.10x、首播结束回调与音频错误 | 直接访问 TTS 密钥或本地缓存文件。 |
 | `ListeningTranscript` | `transcriptUnlocked`、脚本 | 首播后折叠阅读 | 提交前渲染答案或解析。 |
-| `ListeningQuestionSet` | `questionsUnlocked`、`submittedAt`、题目 | 作答与提交后的答案/解析回顾 | 按字符串自行判分。 |
+| `ListeningQuestionSet` | `questionsUnlocked`、`submittedAt`、答案快照、题目 | 作答与提交后的学生答案/参考答案/解析/评分点回顾 | 按字符串自行判分或覆盖已提交快照。 |
 
 前端状态：`loading`、`audio_loading`、`ready_before_first_play`、`ready_to_answer`、`submitting`、`submitted`、`audio_failed`、`task_load_failed`。首播的 `ended` 回调仅发送一次 `event=completed`；后续完整播放仍可记录次数，但不得关闭任何控制或题目。
 

@@ -9,4 +9,4 @@ async function request(path: string, init?: RequestInit) {
 
 export const createLearningPackage = (body: Record<string, unknown>) => request('/learning-packages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 export const getLearningPackage = (id: string, ownerId: string) => request(`/learning-packages/${encodeURIComponent(id)}?ownerId=${encodeURIComponent(ownerId)}`);
-export const updatePlayback = (id: string, ownerId: string, event: 'completed' | 'submit') => request(`/learning-packages/${encodeURIComponent(id)}/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerId, event }) });
+export const updatePlayback = (id: string, ownerId: string, event: 'completed' | 'submit', answers?: Record<string, string>) => request(`/learning-packages/${encodeURIComponent(id)}/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerId, event, ...(answers ? { answers } : {}) }) });

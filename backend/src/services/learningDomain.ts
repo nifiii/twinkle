@@ -132,6 +132,7 @@ export function initLearningDomainDatabase(db: Database.Database): void {
       completedPlays INTEGER NOT NULL DEFAULT 0,
       firstCompletedAt INTEGER,
       submittedAt INTEGER,
+      answersJson TEXT,
       updatedAt INTEGER NOT NULL,
       PRIMARY KEY (ownerId, packageId)
     );
@@ -279,6 +280,9 @@ export function initLearningDomainDatabase(db: Database.Database): void {
   const progressColumns = db.prepare('PRAGMA table_info(learning_package_progress)').all() as Array<{ name: string }>;
   if (!progressColumns.some(column => column.name === 'firstCompletedAt')) {
     db.exec('ALTER TABLE learning_package_progress ADD COLUMN firstCompletedAt INTEGER');
+  }
+  if (!progressColumns.some(column => column.name === 'answersJson')) {
+    db.exec('ALTER TABLE learning_package_progress ADD COLUMN answersJson TEXT');
   }
 
   const attemptColumns = db.prepare('PRAGMA table_info(paper_attempts)').all() as Array<{ name: string }>;

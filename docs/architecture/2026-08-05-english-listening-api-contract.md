@@ -30,7 +30,7 @@
       "fast": { "label": "加快", "request": { "text": "...", "coursewareId": "...", "chunkIdx": 0, "speed": "fast" } }
     }
   },
-  "playback": { "completedPlays": 1, "firstCompletedAt": 1785899000000, "submittedAt": null, "canPlay": true, "transcriptUnlocked": true, "questionsUnlocked": true }
+  "playback": { "completedPlays": 1, "firstCompletedAt": 1785899000000, "submittedAt": null, "answers": {}, "canPlay": true, "transcriptUnlocked": true, "questionsUnlocked": true }
 }
 ```
 
@@ -38,10 +38,10 @@
 
 `POST /api/learning-packages/:id/playback`
 
-请求：`{ "ownerId": "child_1", "event": "completed" | "submit" }`。
+请求：`{ "ownerId": "child_1", "event": "completed" | "submit", "answers"?: { "q1": "B" } }`。
 
 - `completed`：每次完整播放递增计数；首次写入 `firstCompletedAt`，永不因累计次数拒绝。
-- `submit`：若尚未 `firstCompletedAt`，返回 `400`、`errorCode: "listening_not_played"`；否则幂等写入 `submittedAt`。
+- `submit`：若尚未 `firstCompletedAt`，返回 `400`、`errorCode: "listening_not_played"`；否则校验 `answers` 的题目 ID 属于当前包，原子写入 `submittedAt` 与首个答案快照。重复提交保留原 `answers`，不覆盖学生已提交内容。
 - 读取和返回 `canPlay: true`；不返回 `playsRemaining`。为兼容旧客户端可暂时返回 `playsRemaining: null`，新页面不得显示它。
 
 `POST /api/tts`

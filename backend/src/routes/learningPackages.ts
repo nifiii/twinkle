@@ -57,7 +57,7 @@ router.get('/learning-packages/:id', (req: Request, res: Response) => {
 router.post('/learning-packages/:id/playback', (req: Request, res: Response) => {
   if (!requirePackagesFeature(res)) return;
   try {
-    const data = updateLearningPackagePlayback(req.params.id, req.body?.ownerId, req.body?.event);
+    const data = updateLearningPackagePlayback(req.params.id, req.body?.ownerId, req.body?.event, undefined, req.body?.answers);
     return res.json({ success: true, data });
   } catch (error) {
     if (isLearningPackageInputError(error)) {

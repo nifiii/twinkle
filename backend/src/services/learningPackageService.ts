@@ -96,6 +96,47 @@ export class ListeningNotPlayedError extends LearningPackageValidationError {
   }
 }
 
+type ListeningAnswers = Record<string, string>;
+
+function readStoredAnswers(value: string | null | undefined): ListeningAnswers {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+    const answers: ListeningAnswers = {};
+    for (const [questionId, answer] of Object.entries(parsed)) {
+      if (typeof answer === 'string') answers[questionId] = answer;
+    }
+    return answers;
+  } catch {
+    return {};
+  }
+}
+
+function parseListeningAnswers(value: unknown, packageId: string, database: Database.Database): ListeningAnswers {
+  if (value === undefined) return {};
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    throw new LearningPackageValidationError('answers', '作答格式不正确');
+  }
+
+  const row = database.prepare('SELECT contentJson FROM learning_packages WHERE id = ?').get(packageId) as { contentJson: string } | undefined;
+  try {
+    const content = JSON.parse(row?.contentJson || '{}') as { listening?: { questions?: Array<{ id?: unknown }> } };
+    const questionIds = new Set((content.listening?.questions || []).map(question => question.id).filter((id): id is string => typeof id === 'string'));
+    const answers: ListeningAnswers = {};
+    for (const [questionId, answer] of Object.entries(value)) {
+      if (!questionIds.has(questionId) || typeof answer !== 'string' || answer.length > 1000) {
+        throw new LearningPackageValidationError('answers', '作答包含无效题目或内容');
+      }
+      answers[questionId] = answer.trim();
+    }
+    return answers;
+  } catch (error) {
+    if (error instanceof LearningPackageValidationError) throw error;
+    throw new LearningPackageValidationError('answers', '作答格式不正确');
+  }
+}
+
 function parseChapterIds(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.some(id => typeof id !== 'string' || !id.trim())) {
     throw new LearningPackageValidationError('chapterIds', '至少选择一个有效章节');
@@ -369,7 +410,7 @@ function requireEnglishListeningPackage(id: unknown, ownerId: string, database: 
 export function getLearningPackageProgress(id: unknown, ownerIdInput: unknown, database: Database.Database = db): Record<string, unknown> {
   const ownerId = parseLearningOwnerId(ownerIdInput);
   const packageId = requireEnglishListeningPackage(id, ownerId, database);
-  const row = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null } | undefined;
+  const row = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt, answersJson FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null; answersJson: string | null } | undefined;
   const completedPlays = row?.completedPlays || 0;
   const firstCompletedAt = row?.firstCompletedAt || null;
   return {
@@ -377,33 +418,37 @@ export function getLearningPackageProgress(id: unknown, ownerIdInput: unknown, d
     playsRemaining: null,
     firstCompletedAt,
     submittedAt: row?.submittedAt || null,
+    answers: readStoredAnswers(row?.answersJson),
     canPlay: true,
     transcriptUnlocked: firstCompletedAt !== null,
     questionsUnlocked: firstCompletedAt !== null,
   };
 }
 
-export function updateLearningPackagePlayback(id: unknown, ownerIdInput: unknown, event: unknown, database: Database.Database = db): Record<string, unknown> {
+export function updateLearningPackagePlayback(id: unknown, ownerIdInput: unknown, event: unknown, database: Database.Database = db, answersInput: unknown = undefined): Record<string, unknown> {
   const ownerId = parseLearningOwnerId(ownerIdInput);
   const packageId = requireEnglishListeningPackage(id, ownerId, database);
   if (event !== 'completed' && event !== 'submit') throw new LearningPackageValidationError('event', '播放事件不支持');
   const now = Date.now();
   const result = database.transaction(() => {
-    const current = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null } | undefined;
+    const current = database.prepare('SELECT completedPlays, firstCompletedAt, submittedAt, answersJson FROM learning_package_progress WHERE ownerId = ? AND packageId = ?').get(ownerId, packageId) as { completedPlays: number; firstCompletedAt: number | null; submittedAt: number | null; answersJson: string | null } | undefined;
     const plays = current?.completedPlays || 0;
     if (event === 'submit' && !current?.firstCompletedAt) throw new ListeningNotPlayedError();
+    const submittedAnswers = event === 'submit' ? parseListeningAnswers(answersInput, packageId, database) : {};
     const nextPlays = event === 'completed' ? plays + 1 : plays;
     const firstCompletedAt = event === 'completed' ? (current?.firstCompletedAt || now) : (current?.firstCompletedAt || null);
     const submittedAt = event === 'submit' ? (current?.submittedAt || now) : (current?.submittedAt || null);
-    database.prepare(`INSERT INTO learning_package_progress (ownerId, packageId, completedPlays, firstCompletedAt, submittedAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(ownerId, packageId) DO UPDATE SET completedPlays = excluded.completedPlays, firstCompletedAt = excluded.firstCompletedAt, submittedAt = excluded.submittedAt, updatedAt = excluded.updatedAt`
-    ).run(ownerId, packageId, nextPlays, firstCompletedAt, submittedAt, now);
+    const answersJson = event === 'submit' ? (current?.submittedAt ? current.answersJson : JSON.stringify(submittedAnswers)) : (current?.answersJson || null);
+    database.prepare(`INSERT INTO learning_package_progress (ownerId, packageId, completedPlays, firstCompletedAt, submittedAt, answersJson, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(ownerId, packageId) DO UPDATE SET completedPlays = excluded.completedPlays, firstCompletedAt = excluded.firstCompletedAt, submittedAt = excluded.submittedAt, answersJson = excluded.answersJson, updatedAt = excluded.updatedAt`
+    ).run(ownerId, packageId, nextPlays, firstCompletedAt, submittedAt, answersJson, now);
     return {
       completedPlays: nextPlays,
       playsRemaining: null,
       firstCompletedAt,
       submittedAt,
+      answers: readStoredAnswers(answersJson),
       canPlay: true,
       transcriptUnlocked: firstCompletedAt !== null,
       questionsUnlocked: firstCompletedAt !== null,

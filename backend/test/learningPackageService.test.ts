@@ -5,6 +5,7 @@ import { initLearningDomainDatabase } from '../src/services/learningDomain.js';
 import {
   createLearningPackage,
   getLearningPackage,
+  getLearningPackageProgress,
   LearningPackageValidationError,
   ListeningNotPlayedError,
   requireEnglishListeningGradeProfile,
@@ -169,7 +170,16 @@ test('allows unlimited completed listening plays, records first completion, and 
   assert.equal(fourth.completedPlays, 3);
   assert.equal(third.firstCompletedAt, first.firstCompletedAt);
   assert.equal(fourth.firstCompletedAt, first.firstCompletedAt);
-  assert.ok(updateLearningPackagePlayback(result.id, 'child_1', 'submit', database).submittedAt);
+  const submitted = updateLearningPackagePlayback(result.id, 'child_1', 'submit', database, { q1: 'B', q3: 'C' });
+  assert.ok(submitted.submittedAt);
+  assert.deepEqual(submitted.answers, { q1: 'B', q3: 'C' });
+  const repeated = updateLearningPackagePlayback(result.id, 'child_1', 'submit', database, { q1: 'A' });
+  assert.deepEqual(repeated.answers, { q1: 'B', q3: 'C' });
+  assert.deepEqual(getLearningPackageProgress(result.id, 'child_1', database).answers, { q1: 'B', q3: 'C' });
+  assert.throws(
+    () => updateLearningPackagePlayback(result.id, 'child_1', 'submit', database, { missing: 'A' }),
+    (error: unknown) => error instanceof LearningPackageValidationError && error.field === 'answers',
+  );
 });
 
 test('rejects English listening when the selected chapter has no parsed body', async () => {
