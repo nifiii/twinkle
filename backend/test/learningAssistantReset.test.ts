@@ -172,3 +172,31 @@ test('dry-run keeps arbitrary external wrong-problem paths blocked', async () =>
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('dry-run keeps retained scanned-item paths outside the data volume blocked', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'twinkle-learning-reset-retained-unsafe-'));
+  const database = new Database(path.join(dataDir, 'hlos.db'));
+  try {
+    database.exec('CREATE TABLE scanned_items (id TEXT PRIMARY KEY, type TEXT, mdPath TEXT, imagePath TEXT, allImagesJson TEXT);');
+    database.prepare('INSERT INTO scanned_items VALUES (?, ?, ?, ?, ?)').run(
+      'exam-legacy',
+      'exam_paper',
+      '/opt/hl-os/data/obsidian/Exams_Homework/exam.md',
+      null,
+      '[]',
+    );
+
+    const manifest = await runLearningAssistantResetDryRun({ database, dataDir, now: new Date('2026-08-04T00:00:00.000Z') });
+
+    assert.deepEqual(manifest.blockers, [{
+      code: 'unsafe_file_path',
+      message: '保留资料文件不在数据卷内',
+      recordId: 'exam-legacy',
+      field: 'mdPath',
+      value: '/opt/hl-os/data/obsidian/Exams_Homework/exam.md',
+    }]);
+  } finally {
+    database.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});

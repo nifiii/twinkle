@@ -141,7 +141,13 @@ function collectReferences(rows: Row[], dataDir: string, blockers: ResetManifest
       if (typeof raw !== 'string' || !raw.trim()) continue;
       const resolved = dataPath(dataDir, raw, source === 'wrong');
       if (!resolved || !withinDataDir(dataDir, resolved)) {
-        if (source === 'wrong') blockers.push({ code: 'unsafe_file_path', message: '错题文件不在数据卷内', recordId, field, value: raw });
+        blockers.push({
+          code: 'unsafe_file_path',
+          message: source === 'wrong' ? '错题文件不在数据卷内' : '保留资料文件不在数据卷内',
+          recordId,
+          field,
+          value: raw,
+        });
         continue;
       }
       references.push({ path: resolved, recordId, field });
