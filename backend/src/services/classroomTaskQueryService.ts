@@ -45,6 +45,8 @@ export interface ClassroomTaskSummary {
   createdAt: number;
   updatedAt: number;
   primaryLink: TaskLink | null;
+  retryable: boolean;
+  blockedReason?: string;
 }
 
 export interface ClassroomTaskDetail extends ClassroomTaskSummary {
@@ -116,6 +118,16 @@ function selectPrimaryLink(links: TaskLink[]): TaskLink | null {
   return [...links].sort((left, right) => PRIMARY_LINK_ORDER.indexOf(left.role) - PRIMARY_LINK_ORDER.indexOf(right.role))[0] || null;
 }
 
+function retryState(task: LearningTaskRecord): Pick<ClassroomTaskSummary, 'retryable' | 'blockedReason'> {
+  if (task.generationStatus === 'resource_unavailable') return { retryable: false, ...(task.errorMessage ? { blockedReason: task.errorMessage } : {}) };
+  if (task.generationStatus !== 'failed') return { retryable: false };
+  const message = task.errorMessage || '';
+  const invalidEnglishInput = task.taskType === 'english_listening'
+    && (task.errorCode === 'listening_textbook_invalid' || /缺少可识别的 1-6 年级信息|找不到.*正文|没有足够的章节正文/.test(message));
+  if (invalidEnglishInput) return { retryable: false, blockedReason: `教材资料需要修复：${message}` };
+  return { retryable: true };
+}
+
 function toTaskSummary(database: Database.Database, task: LearningTaskRecord): ClassroomTaskSummary {
   const book = findBook(database, task.ownerId, task.bookId);
   const links = readTaskLinks(database, task.id);
@@ -134,6 +146,7 @@ function toTaskSummary(database: Database.Database, task: LearningTaskRecord): C
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     primaryLink,
+    ...retryState(task),
   };
 }
 
@@ -199,6 +212,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
       createdAt: item.createdAt,
       updatedAt: item.createdAt,
       primaryLink: { entityType: `classroom_${item.type === 'quiz' ? 'quiz' : 'courseware'}`, entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
+      retryable: false,
     })),
     ...packages.map(item => {
       const book: BookRow | null = item.bookTitle ? {
@@ -218,6 +232,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         primaryLink: { entityType: 'learning_package', entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
+        retryable: false,
       };
     }),
     ...papers.map(item => {
@@ -238,6 +253,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         createdAt: item.createdAt,
         updatedAt: item.createdAt,
         primaryLink: { entityType: 'assessment_paper', entityId: item.id, role: 'paper' as const, createdAt: item.createdAt },
+        retryable: false,
       };
     }),
     ...quizResults.map(item => ({
@@ -254,6 +270,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
       createdAt: item.createdAt,
       updatedAt: item.createdAt,
       primaryLink: { entityType: 'quiz_result', entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
+      retryable: false,
     })),
   ];
 }

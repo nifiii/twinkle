@@ -85,17 +85,18 @@ export function getPaperAttemptReview(database: Database.Database, attemptId: st
     SELECT attempt.id, attempt.paperId, attempt.ownerId, attempt.answersJson, attempt.reviewSnapshotJson,
            attempt.status, attempt.submittedAt, paper.contentJson
     FROM paper_attempts attempt
-    JOIN assessment_papers paper ON paper.id = attempt.paperId AND paper.ownerId = attempt.ownerId
+    LEFT JOIN assessment_papers paper ON paper.id = attempt.paperId AND paper.ownerId = attempt.ownerId
     WHERE attempt.id = ? AND attempt.ownerId = ?
   `).get(attemptId, ownerId) as {
     id: string; paperId: string; ownerId: string; answersJson: string; reviewSnapshotJson: string | null;
-    status: string; submittedAt: number | null; contentJson: string;
+    status: string; submittedAt: number | null; contentJson: string | null;
   } | undefined;
   if (!row || row.status !== 'submitted') return null;
   const answers = parseJson<Record<string, string>>(row.answersJson, {});
   const snapshot = parseJson<AnswerReviewItem[]>(row.reviewSnapshotJson, []);
   const content = parseJson<{ sections?: Array<{ questions?: StoredQuestion[] }> }>(row.contentJson, {});
   const items = snapshot.length ? snapshot : createReviewItems((content.sections || []).flatMap(section => section.questions || []), answers);
+  if (!items.length) return null;
   return {
     id: row.id, sourceType: 'paper_attempt' as const, paperId: row.paperId, ownerId: row.ownerId,
     status: 'submitted' as const, submittedAt: row.submittedAt,

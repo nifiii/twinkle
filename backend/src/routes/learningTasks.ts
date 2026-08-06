@@ -7,6 +7,7 @@ import { createWrongReviewTask, listWrongProblemCandidates } from '../services/w
 import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, getOlympiadMaterials, TextbookTaskUnavailableError } from '../services/textbookTaskService.js';
 import { isRetiredLearningContent } from '../services/retiredLearningContentService.js';
 import { getUnifiedWrongBook, WrongBookUnavailableError, WrongBookValidationError } from '../services/unifiedWrongBookService.js';
+import { GeneratedMaterialError, listGeneratedLearningMaterials, retireGeneratedLearningMaterial } from '../services/generatedLearningMaterialService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -20,6 +21,10 @@ const fail = (error: unknown, res: Response) => {
   if (error instanceof TextbookTaskUnavailableError) return res.status(400).json({ success: false, errorCode: error.code, error: error.message });
   if (error instanceof WrongBookValidationError) return res.status(400).json({ success: false, errorCode: 'INVALID_FILTER', error: error.message });
   if (error instanceof WrongBookUnavailableError) return res.status(500).json({ success: false, errorCode: 'WRONG_BOOK_UNAVAILABLE', error: error.message });
+  if (error instanceof GeneratedMaterialError) {
+    const status = error.code === 'learning_content_retired' ? 410 : error.code === 'invalid_source' ? 400 : 409;
+    return res.status(status).json({ success: false, errorCode: error.code, error: error.message });
+  }
   console.error('[learning-tasks]', error);
   return res.status(500).json({ success: false, errorCode: 'generation_failed', error: '学习任务读取失败，请稍后重试' });
 };
@@ -41,6 +46,25 @@ router.get('/learning-tasks', (req: Request, res: Response) => {
       subject: typeof req.query.subject === 'string' ? req.query.subject : undefined,
       taskType: typeof req.query.type === 'string' ? req.query.type : undefined,
       bookId: typeof req.query.bookId === 'string' ? req.query.bookId : undefined,
+      cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+      limit,
+    }) });
+  } catch (error) { return fail(error, res); }
+});
+router.get('/generated-learning-materials', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try {
+    const limit = req.query.limit === undefined ? undefined : Number(req.query.limit);
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
+      throw new LearningTaskValidationError('limit', '分页数量必须为 1 到 100');
+    }
+    const progress = typeof req.query.progress === 'string' ? req.query.progress : undefined;
+    if (progress !== undefined && !['all', 'pending', 'completed'].includes(progress)) {
+      throw new LearningTaskValidationError('progress', '学习进度筛选不支持');
+    }
+    return res.json({ success: true, data: listGeneratedLearningMaterials(db, req.query.ownerId, {
+      subject: typeof req.query.subject === 'string' ? req.query.subject : undefined,
+      progress: progress as 'all' | 'pending' | 'completed' | undefined,
       cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
       limit,
     }) });
@@ -101,6 +125,9 @@ router.post('/learning-tasks/:id/retry', async (req: Request, res: Response) => 
     if (!current || current.source !== 'task' || current.sourceSnapshot.sourceType !== 'chapter' || !current.sourceSnapshot.bookId || !current.sourceSnapshot.chapterIds?.length) {
       throw new LearningTaskValidationError('taskId', '当前学习任务不支持重新生成');
     }
+    if (!current.retryable) {
+      throw new LearningTaskValidationError('taskId', current.blockedReason || '当前学习任务不能重新生成');
+    }
     const task = await createTextbookTask({
       ownerId: req.body?.ownerId,
       userName: req.body?.userName,
@@ -111,6 +138,12 @@ router.post('/learning-tasks/:id/retry', async (req: Request, res: Response) => 
     const detail = getClassroomTask(db, task.id, req.body?.ownerId);
     if (!detail) throw new Error('学习任务重试后无法读取');
     return res.json({ success: true, data: taskSummary(detail) });
+  } catch (error) { return fail(error, res); }
+});
+router.delete('/generated-learning-materials/:taskId', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try {
+    return res.json({ success: true, data: retireGeneratedLearningMaterial(db, req.params.taskId, req.body?.ownerId) });
   } catch (error) { return fail(error, res); }
 });
 export default router;

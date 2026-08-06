@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { BookOpen, FileText, LucideIcon, Library } from 'lucide-react';
+import { BookOpen, FileText, FolderOpen, LucideIcon, Library } from 'lucide-react';
 import { UserProfile, ScannedItem, EBook } from '../types';
 import LibraryHub from './LibraryHub';
 import CaptureModule from './CaptureModule';
+import GeneratedMaterialsHub from './GeneratedMaterialsHub';
 
-export type ResourcesSub = 'library' | 'capture';
+export type ResourcesSub = 'library' | 'capture' | 'generated';
 
 interface ResourcesShellProps {
   currentUser: UserProfile;
@@ -16,6 +17,7 @@ interface ResourcesShellProps {
   onDeleteScannedItem: (id: string) => Promise<void> | void;
   onOpenQuizResult: (resultId: string) => void;
   onOpenPaperAttempt: (attemptId: string) => void;
+  onOpenTask: (taskId: string) => void;
 }
 
 interface SubTabDef {
@@ -27,6 +29,7 @@ interface SubTabDef {
 const SUB_TABS: SubTabDef[] = [
   { id: 'library',  label: '我的书架',   icon: BookOpen },
   { id: 'capture',  label: '错题本',     icon: FileText },
+  { id: 'generated', label: '已生成',    icon: FolderOpen },
 ];
 
 const ResourcesShell: React.FC<ResourcesShellProps> = ({
@@ -39,6 +42,7 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
   onDeleteScannedItem,
   onOpenQuizResult,
   onOpenPaperAttempt,
+  onOpenTask,
 }) => {
   // LibraryHub 全屏子页（read/upload/edit）下需要让父级隐藏 TabBar
   const [libraryViewMode, setLibraryViewMode] = useState<'grid' | 'upload' | 'edit' | 'read'>('grid');
@@ -69,6 +73,9 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
                   </p>
                   <p>
                     <span className="text-neon-amber font-medium">错题本</span> 上传试卷 / 作业图片，自动识别错题归档文件
+                  </p>
+                  <p>
+                    <span className="text-neon-purple font-medium">已生成</span> 管理课件、测验、听力和模拟考试
                   </p>
                 </div>
               </div>
@@ -126,6 +133,7 @@ const ResourcesShell: React.FC<ResourcesShellProps> = ({
           onLockedSubTabChange={setCaptureLockedTab}
         />
       )}
+      {sub === 'generated' && <GeneratedMaterialsHub currentUser={currentUser} onOpenTask={onOpenTask} />}
     </div>
   );
 };

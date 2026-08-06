@@ -122,7 +122,8 @@ const ClassroomTaskHub: React.FC<ClassroomTaskHubProps> = ({ currentUser, books,
     if (item.generationStatus === 'running') return <span className="inline-flex min-h-10 items-center gap-2 text-sm text-cyber-muted"><Loader2 size={16} className="animate-spin" />正在生成</span>;
     if (item.generationStatus !== 'ready') {
       if (item.taskType === 'assessment') return <span className="text-sm text-cyber-muted">请重新选择试卷条件创建</span>;
-      return item.source === 'task'
+      if (item.blockedReason) return <span className="max-w-sm text-sm text-amber-300">{item.blockedReason}</span>;
+      return item.source === 'task' && item.retryable
         ? <button type="button" onClick={() => void retry(item)} disabled={retrying} className="min-h-10 rounded-lg border border-neon-blue px-3 text-sm font-medium text-neon-blue transition-colors hover:bg-neon-blue/10 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-neon-blue">{retrying ? '正在重试' : '重新生成'}</button>
         : <span className="text-sm text-cyber-muted">{STATUS_LABEL[item.generationStatus] || '暂不可用'}</span>;
     }

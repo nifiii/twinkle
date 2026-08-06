@@ -133,6 +133,34 @@ test('creates a student courseware and its practice quiz for each textbook subje
   assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items WHERE type = 'quiz'`).get() as { count: number }).count, 4);
 });
 
+test('normalizes model choice aliases before persisting a courseware practice quiz', async () => {
+  const database = createDatabase();
+  const task = await createTextbookTask({
+    ownerId: 'child_1', requestKey: 'english-choice-alias', taskType: 'courseware', userName: '大宝',
+    source: { kind: 'chapter', bookId: 'english-book', chapterIds: ['chapter-1'] },
+  }, {
+    database,
+    readMarkdown: async () => '# Unit 1\n这是足够用于测试的英语教材章节正文。'.repeat(10),
+    generate: async () => ({ courseware: studentCourseware('英语'), questions: [{ type: 'single_choice', question: '请选择正确表达。', options: ['A. Hello', 'B. Goodbye'], answer: 'A', explanation: 'A 是正确表达。' }] }),
+  });
+
+  const quiz = database.prepare(`SELECT contentJson FROM classroom_items WHERE id = (SELECT entityId FROM learning_task_links WHERE taskId = ? AND entityType = 'classroom_quiz')`).get(task.id) as { contentJson: string };
+  assert.deepEqual(JSON.parse(quiz.contentJson), [{ id: 'q1', type: 'choice', question: '请选择正确表达。', options: ['A. Hello', 'B. Goodbye'], answer: 'A', explanation: 'A 是正确表达。' }]);
+});
+
+test('rejects a generated choice question without visible options', async () => {
+  const database = createDatabase();
+  await assert.rejects(() => createTextbookTask({
+    ownerId: 'child_1', requestKey: 'choice-without-options', taskType: 'courseware', userName: '大宝',
+    source: { kind: 'chapter', bookId: 'english-book', chapterIds: ['chapter-1'] },
+  }, {
+    database,
+    readMarkdown: async () => '# Unit 1\n这是足够用于测试的英语教材章节正文。'.repeat(10),
+    generate: async () => ({ courseware: studentCourseware('英语'), questions: [{ type: 'single_choice', question: '没有选项的题。', answer: 'A', explanation: '不可保存。' }] }),
+  }));
+  assert.equal((database.prepare(`SELECT COUNT(*) AS count FROM classroom_items`).get() as { count: number }).count, 0);
+});
+
 test('rejects invalid student courseware without retaining a courseware or practice quiz', async () => {
   const database = createDatabase();
   await assert.rejects(() => createTextbookTask({

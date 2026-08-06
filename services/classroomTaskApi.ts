@@ -19,6 +19,8 @@ export interface ClassroomTaskSummary {
   createdAt: number;
   updatedAt: number;
   primaryLink: ClassroomTaskLink | null;
+  retryable: boolean;
+  blockedReason?: string;
 }
 
 export interface ClassroomTaskDetail extends ClassroomTaskSummary {
@@ -37,6 +39,23 @@ export class ClassroomTaskApiError extends Error {
 
 export interface ClassroomTaskPage {
   items: ClassroomTaskSummary[];
+  nextCursor: string | null;
+}
+
+export interface GeneratedLearningMaterial {
+  taskId: string;
+  taskType: string;
+  title: string;
+  subject: string;
+  book: { id: string; title: string } | null;
+  chapterTitles: string[];
+  learningStatus: 'not_started' | 'in_progress' | 'completed';
+  createdAt: number;
+  primaryLink: ClassroomTaskLink;
+}
+
+export interface GeneratedLearningMaterialPage {
+  items: GeneratedLearningMaterial[];
   nextCursor: string | null;
 }
 
@@ -92,6 +111,20 @@ export function fetchClassroomTasks(input: {
 
 export function fetchClassroomTask(id: string, ownerId: string): Promise<ClassroomTaskDetail> {
   return request<ClassroomTaskDetail>(`/api/learning-tasks/${encodeURIComponent(id)}?${new URLSearchParams({ ownerId })}`);
+}
+
+export function fetchGeneratedLearningMaterials(input: { ownerId: string; subject?: string; progress?: 'all' | 'pending' | 'completed'; cursor?: string; limit?: number }): Promise<GeneratedLearningMaterialPage> {
+  const query = new URLSearchParams({ ownerId: input.ownerId, limit: String(input.limit || 20) });
+  if (input.subject) query.set('subject', input.subject);
+  if (input.progress && input.progress !== 'all') query.set('progress', input.progress);
+  if (input.cursor) query.set('cursor', input.cursor);
+  return request<GeneratedLearningMaterialPage>(`/api/generated-learning-materials?${query}`);
+}
+
+export function retireGeneratedLearningMaterial(taskId: string, ownerId: string): Promise<{ taskId: string; retiredEntityCount: number }> {
+  return request<{ taskId: string; retiredEntityCount: number }>(`/api/generated-learning-materials/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerId }),
+  });
 }
 
 export function retryClassroomTask(id: string, ownerId: string): Promise<ClassroomTaskSummary> {

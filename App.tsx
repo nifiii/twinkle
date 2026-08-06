@@ -66,7 +66,7 @@ const normalizeSubject = (subject: string): string => {
 };
 
 const VALID_TABS = new Set(['dashboard', 'resources', 'assistant', 'tutor']);
-const VALID_RESOURCES_SUBS = new Set(['library', 'capture']);
+const VALID_RESOURCES_SUBS = new Set(['library', 'capture', 'generated']);
 
 // Hash 协议：
 //   #dashboard
@@ -404,6 +404,7 @@ const App: React.FC = () => {
               onDeleteScannedItem={handleDeleteScannedItem}
               onOpenQuizResult={(resultId) => handleTabChange('tutor', `task/${encodeURIComponent(`legacy:quiz_result:${resultId}`)}`)}
               onOpenPaperAttempt={(attemptId) => handleTabChange('tutor', `paper/review/${encodeURIComponent(attemptId)}`)}
+              onOpenTask={(taskId) => handleTabChange('tutor', `task/${encodeURIComponent(taskId)}`)}
             />
           );
         case 'tutor':

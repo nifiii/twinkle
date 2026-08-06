@@ -16,8 +16,10 @@ interface QuizExamProps {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  choice: '选择题', fill: '填空题', essay: '解答题',
+  choice: '选择题', single_choice: '选择题', multiple_choice: '选择题', fill: '填空题', essay: '解答题',
 };
+
+const isChoiceQuestion = (type: string) => ['choice', 'single_choice', 'multiple_choice'].includes(type);
 
 export const QuizExam: React.FC<QuizExamProps> = ({
   quizId, questions, bookTitle, chapter, subject, studentName, ownerId, onClose, onSubmitted,
@@ -100,7 +102,7 @@ export const QuizExam: React.FC<QuizExamProps> = ({
             <div key={q.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-start gap-3 mb-4">
                 <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
-                  q.type === 'choice' ? 'bg-blue-100 text-blue-700' :
+                  isChoiceQuestion(q.type) ? 'bg-blue-100 text-blue-700' :
                   q.type === 'fill' ? 'bg-yellow-100 text-yellow-700' :
                   'bg-purple-100 text-purple-700'
                 }`}>
@@ -112,7 +114,7 @@ export const QuizExam: React.FC<QuizExamProps> = ({
               </div>
 
               {/* 选择题 */}
-              {q.type === 'choice' && q.options && (
+              {isChoiceQuestion(q.type) && q.options && (
                 <div className="space-y-2 pl-6">
                   {q.options.map((opt, i) => {
                     const letter = opt.charAt(0);
