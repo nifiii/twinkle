@@ -35,7 +35,8 @@ books.grade + selected chapter excerpt
 ### 不变量与迁移
 
 - `gradeProfile` 写进 `contentJson`，内容创建后不可修改。旧包读取时从 `books.grade` 解析回退档，无法解析则使用兼容的 `legacy` 标识和标准速度。
-- `firstCompletedAt IS NOT NULL` 是题目与文本解锁唯一服务端条件。`completedPlays` 不再限制 `canPlay`，并允许递增。
+- 2026-10-10 变更：题目加载即可阅读与选择，`questionsUnlocked` 恒为 `true`；`firstCompletedAt IS NOT NULL` 仅控制文本解锁与提交资格。`completedPlays` 不限制 `canPlay`，并允许递增。
+- 新生成三个年级档均为 `questionRange=[5,5]`；提示词与持久化边界校验使用同一档位约束。旧包读取不执行新生成校验，不修改旧包内容或作答快照，无数据库迁移。
 - `answersJson` 只在首次成功 `submit` 时写入，结构为 `{ "questionId": "student answer" }`。服务端仅接受当前听力包中已存在的题目 ID；它不判对错、不写分数，也不调用模型批改。旧进度记录读取为无快照，直到学生首次提交。
 - TTS 速度只接受 `slow`、`standard`、`fast` 三个枚举，分别映射 `0.75x`、`1.00x`、`1.10x`。`ControlledRateTtsAdapter` 先合成标准母音频，再用镜像内 FFmpeg `atempo` 渲染慢速/加快档；不得直接信任客户端传入倍率、音色或供应商参数。
 - 缓存身份至少包含包 ID、脚本文本哈希、速度档、TTS 配置版本与片段号。速度不一致、脚本变化或配置升级均不能命中旧缓存。

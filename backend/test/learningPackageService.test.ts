@@ -70,6 +70,8 @@ test('creates an original English listening package anchored to chapter text', a
         { id: 'q1', type: 'fact', prompt: 'Who is speaking?', options: ['Mia', 'Tom'], answer: 'Mia', explanation: 'Mia introduces herself.', rubricPoints: ['识别人物'] },
         { id: 'q2', type: 'fact', prompt: 'Where are they?', options: ['Classroom', 'Park'], answer: 'Classroom', explanation: 'They are in class.', rubricPoints: ['识别场景'] },
         { id: 'q3', type: 'inference', prompt: 'What do they do before class?', options: ['Read', 'Run'], answer: 'Read', explanation: 'They read the new book.', rubricPoints: ['理解活动'] },
+        { id: 'q4', type: 'fact', prompt: 'Who reads the first page?', options: ['Tom', 'Anna'], answer: 'Tom', explanation: 'Tom reads the first page.', rubricPoints: ['识别人物'] },
+        { id: 'q5', type: 'fact', prompt: 'What do they put on the desk?', options: ['Pencils', 'Cups'], answer: 'Pencils', explanation: 'They put their pencils on the desk.', rubricPoints: ['识别物品'] },
       ],
     }; },
   });
@@ -78,6 +80,7 @@ test('creates an original English listening package anchored to chapter text', a
   assert.equal(content.original, true);
   assert.equal(content.gradeProfile.id, 'g3_4');
   assert.equal(content.gradeProfile.defaultSpeed, 'standard');
+  assert.equal(content.listening.questions.length, 5);
   assert.deepEqual(content.audio, {
     endpoint: '/api/tts',
     request: { text: content.listening.script, coursewareId: result.id, chunkIdx: 0 },
@@ -100,6 +103,8 @@ test('accepts a numeric English catalog ID submitted by the browser as text', as
       { id: 'q1', type: 'fact', prompt: 'Where are they?', answer: 'Classroom', explanation: 'They are starting an English lesson.', rubricPoints: ['识别场景'] },
       { id: 'q2', type: 'fact', prompt: 'Who is speaking?', answer: 'Teacher', explanation: 'The teacher says hello.', rubricPoints: ['识别人物'] },
       { id: 'q3', type: 'inference', prompt: 'What will they do?', answer: 'Listen', explanation: 'They listen to a story.', rubricPoints: ['理解活动'] },
+      { id: 'q4', type: 'fact', prompt: 'Who reads the first page?', answer: 'Tom', explanation: 'Tom reads the first page.', rubricPoints: ['识别人物'] },
+      { id: 'q5', type: 'fact', prompt: 'What do they put on the desk?', answer: 'Pencils', explanation: 'They put their pencils on the desk.', rubricPoints: ['识别物品'] },
     ] }),
   });
   assert.deepEqual(result.chapterIds, ['1']);
@@ -110,6 +115,9 @@ test('maps textbook grades to the three fixed English listening profiles', () =>
   assert.equal(requireEnglishListeningGradeProfile('小学一年级上册').id, 'g1_2');
   assert.equal(requireEnglishListeningGradeProfile('三年级下册').id, 'g3_4');
   assert.equal(requireEnglishListeningGradeProfile('小学六年级').id, 'g5_6');
+  for (const grade of ['小学一年级上册', '三年级下册', '小学六年级']) {
+    assert.deepEqual(requireEnglishListeningGradeProfile(grade).questionRange, [5, 5]);
+  }
   assert.throws(() => requireEnglishListeningGradeProfile('适用儿童'), LearningPackageValidationError);
 });
 
@@ -128,6 +136,70 @@ test('rejects English listening before generation when the textbook grade is not
 
   assert.equal(generatorCalled, false);
   assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 0);
+});
+
+test('all textbook grade profiles generate exactly five questions and reject other counts without saving', async () => {
+  for (const [grade, words] of [['小学一年级', 50], ['小学三年级', 85], ['小学五年级', 110]] as const) {
+    const database = createDatabase();
+    addBook(database, { id: 'five-question-book', subject: '英语', grade, toc: [{ id: 'unit-1', title: 'Unit One' }] });
+    const script = `${developmentScript} ${developmentScript}`.split(/\s+/).slice(0, words).join(' ');
+    const create = (count: number) => createLearningPackage({
+      ownerId: 'child_1', bookId: 'five-question-book', chapterIds: ['unit-1'], kind: 'english-listening',
+    }, {
+      database,
+      readMarkdown: async () => '# Unit One\nThis source chapter contains classroom greetings, introductions and simple activity descriptions for original listening practice.',
+      generateEnglishListening: async input => {
+        assert.deepEqual(input.gradeProfile.questionRange, [5, 5]);
+        return { script, questions: Array.from({ length: count }, (_, index) => ({
+          id: `q${index + 1}`, type: 'fact' as const, prompt: `Question ${index + 1}`,
+          answer: 'Mia', explanation: 'The story introduces Mia.', rubricPoints: ['识别人物'],
+        })) };
+      },
+    });
+    try {
+      for (const count of [3, 4, 6]) {
+        await assert.rejects(() => create(count), /模型未返回完整的原创听力结构/);
+        assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 0);
+      }
+      const result = await create(5);
+      assert.equal((result.content as any).listening.questions.length, 5);
+      assert.equal((database.prepare('SELECT COUNT(*) AS count FROM learning_packages').get() as { count: number }).count, 1);
+    } finally {
+      database.close();
+    }
+  }
+});
+
+test('historical three-question packages show questions before playing without changing stored content or answers', () => {
+  const database = createDatabase();
+  const content = JSON.stringify({
+    gradeProfile: { id: 'g3_4', questionRange: [3, 3] },
+    listening: { script: developmentScript, questions: [
+      { id: 'old-q1', prompt: 'Who is speaking?', answer: 'Mia', explanation: 'Mia introduces herself.', rubricPoints: ['识别人物'] },
+      { id: 'old-q2', prompt: 'Who reads the first page?', answer: 'Tom', explanation: 'Tom reads.', rubricPoints: ['识别人物'] },
+      { id: 'old-q3', prompt: 'What is on the desk?', answer: 'Pencils', explanation: 'They put pencils on the desk.', rubricPoints: ['识别物品'] },
+    ] },
+  });
+  database.prepare(`INSERT INTO learning_packages
+    (id, ownerId, bookId, chapterIdsJson, kind, contentJson, status, version, createdAt, updatedAt)
+    VALUES ('old-listening', 'child_1', 'old-book', '["unit-1"]', 'english-listening', ?, 'completed', 1, 1, 1)
+  `).run(content);
+  try {
+    const initial = getLearningPackage('old-listening', 'child_1', database) as any;
+    assert.equal(initial.content.listening.questions.length, 3);
+    assert.equal(initial.playback.questionsUnlocked, true);
+    assert.equal(initial.playback.transcriptUnlocked, false);
+    assert.throws(() => updateLearningPackagePlayback('old-listening', 'child_1', 'submit', database, { 'old-q1': 'Tom' }), ListeningNotPlayedError);
+    updateLearningPackagePlayback('old-listening', 'child_1', 'completed', database);
+    updateLearningPackagePlayback('old-listening', 'child_1', 'submit', database, { 'old-q1': 'Tom' });
+    const restored = getLearningPackage('old-listening', 'child_1', database) as any;
+    assert.deepEqual(restored.playback.answers, { 'old-q1': 'Tom' });
+    assert.equal(restored.content.listening.questions.length, 3);
+    assert.deepEqual(restored.content.gradeProfile.questionRange, [3, 3]);
+    assert.equal((database.prepare('SELECT contentJson FROM learning_packages WHERE id = ?').get('old-listening') as { contentJson: string }).contentJson, content);
+  } finally {
+    database.close();
+  }
 });
 
 test('does not persist listening output that violates its textbook grade profile', async () => {
@@ -158,12 +230,20 @@ test('allows unlimited completed listening plays, records first completion, and 
       { id: 'q1', type: 'fact', prompt: 'Question one', answer: 'A', explanation: 'First fact.', rubricPoints: ['point'] },
       { id: 'q2', type: 'fact', prompt: 'Question two', answer: 'B', explanation: 'Second fact.', rubricPoints: ['point'] },
       { id: 'q3', type: 'inference', prompt: 'Question three', answer: 'C', explanation: 'Simple inference.', rubricPoints: ['point'] },
+      { id: 'q4', type: 'fact', prompt: 'Question four', answer: 'D', explanation: 'Fourth fact.', rubricPoints: ['point'] },
+      { id: 'q5', type: 'fact', prompt: 'Question five', answer: 'E', explanation: 'Fifth fact.', rubricPoints: ['point'] },
     ] }),
   });
+  const initial = getLearningPackageProgress(result.id, 'child_1', database);
+  assert.equal(initial.questionsUnlocked, true);
+  assert.equal(initial.transcriptUnlocked, false);
+  assert.equal(initial.completedPlays, 0);
   assert.throws(() => updateLearningPackagePlayback(result.id, 'child_1', 'submit', database), ListeningNotPlayedError);
   const first = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
   assert.equal(first.completedPlays, 1);
   assert.equal(first.canPlay, true);
+  assert.equal(first.questionsUnlocked, true);
+  assert.equal(first.transcriptUnlocked, true);
   assert.ok(first.firstCompletedAt);
   const third = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
   const fourth = updateLearningPackagePlayback(result.id, 'child_1', 'completed', database);
@@ -173,6 +253,7 @@ test('allows unlimited completed listening plays, records first completion, and 
   const submitted = updateLearningPackagePlayback(result.id, 'child_1', 'submit', database, { q1: 'B', q3: 'C' });
   assert.ok(submitted.submittedAt);
   assert.deepEqual(submitted.answers, { q1: 'B', q3: 'C' });
+  assert.equal(submitted.questionsUnlocked, true);
   const repeated = updateLearningPackagePlayback(result.id, 'child_1', 'submit', database, { q1: 'A' });
   assert.deepEqual(repeated.answers, { q1: 'B', q3: 'C' });
   assert.deepEqual(getLearningPackageProgress(result.id, 'child_1', database).answers, { q1: 'B', q3: 'C' });

@@ -47,15 +47,15 @@ export interface EnglishListeningGradeProfile {
 
 const ENGLISH_LISTENING_GRADE_PROFILES: readonly EnglishListeningGradeProfile[] = [
   {
-    id: 'g1_2', label: '基础档', grades: [1, 2], scriptWordRange: [45, 70], questionRange: [2, 3],
+    id: 'g1_2', label: '基础档', grades: [1, 2], scriptWordRange: [45, 70], questionRange: [5, 5],
     allowedQuestionTypes: ['fact'], defaultSpeed: 'slow', source: 'textbook_grade_plus_curriculum_2022_general',
   },
   {
-    id: 'g3_4', label: '发展档', grades: [3, 4], scriptWordRange: [70, 110], questionRange: [3, 3],
+    id: 'g3_4', label: '发展档', grades: [3, 4], scriptWordRange: [70, 110], questionRange: [5, 5],
     allowedQuestionTypes: ['fact', 'inference'], defaultSpeed: 'standard', source: 'textbook_grade_plus_curriculum_2022_general',
   },
   {
-    id: 'g5_6', label: '提升档', grades: [5, 6], scriptWordRange: [100, 140], questionRange: [3, 4],
+    id: 'g5_6', label: '提升档', grades: [5, 6], scriptWordRange: [100, 140], questionRange: [5, 5],
     allowedQuestionTypes: ['fact', 'inference', 'sequence'], defaultSpeed: 'fast', source: 'textbook_grade_plus_curriculum_2022_general',
   },
 ];
@@ -421,7 +421,7 @@ export function getLearningPackageProgress(id: unknown, ownerIdInput: unknown, d
     answers: readStoredAnswers(row?.answersJson),
     canPlay: true,
     transcriptUnlocked: firstCompletedAt !== null,
-    questionsUnlocked: firstCompletedAt !== null,
+    questionsUnlocked: true,
   };
 }
 
@@ -451,7 +451,7 @@ export function updateLearningPackagePlayback(id: unknown, ownerIdInput: unknown
       answers: readStoredAnswers(answersJson),
       canPlay: true,
       transcriptUnlocked: firstCompletedAt !== null,
-      questionsUnlocked: firstCompletedAt !== null,
+      questionsUnlocked: true,
     };
   });
   return result();

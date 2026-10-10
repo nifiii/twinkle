@@ -18,6 +18,8 @@
 
 成功读取的听力包新增以下可选字段：
 
+2026-10-10 变更：新包 `gradeProfile.questionRange=[5,5]`，`content.listening.questions` 必须恰好 5 道。读取旧包保持其原始题数与内容；所有包的读取与播放进度响应均返回 `questionsUnlocked:true`，与播放次数无关。`transcriptUnlocked` 仍由首次完整播放决定，未听完提交仍返回 `listening_not_played`。
+
 ```json
 {
   "content": {
