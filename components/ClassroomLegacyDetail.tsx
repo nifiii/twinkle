@@ -15,7 +15,10 @@ interface ClassroomLegacyDetailProps {
 }
 
 const ClassroomLegacyDetail: React.FC<ClassroomLegacyDetailProps> = ({ task, currentUser, onBack, onOpenTask, initialEntityId }) => {
-  const links = task.links.filter(link => ['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(link.entityType));
+  const hasPracticeReview = task.learningStatus === 'completed' && task.links.some(link => link.entityType === 'quiz_result');
+  // A submitted practice opens its immutable review instead of an empty quiz form.
+  const links = task.links.filter(link => ['classroom_courseware', 'classroom_quiz', 'quiz_result'].includes(link.entityType)
+    && !(hasPracticeReview && link.entityType === 'classroom_quiz'));
   const initialLinkKey = () => initialEntityId
     ? links.find(item => item.entityId === initialEntityId)
       ? `${links.find(item => item.entityId === initialEntityId)!.entityType}:${initialEntityId}`

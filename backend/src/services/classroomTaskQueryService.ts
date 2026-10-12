@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { expireStaleLearningTasks, getLearningTask, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks, WrongProblemRef } from './learningTaskService.js';
+import { expireStaleLearningTasks, getLearningTask, LearningTaskLearningStatus, LearningTaskLinkInput, LearningTaskRecord, listLearningTasks, WrongProblemRef } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 const PRIMARY_LINK_ORDER = ['primary', 'explanation', 'practice', 'resource', 'paper'];
@@ -133,8 +133,13 @@ function toTaskSummary(database: Database.Database, task: LearningTaskRecord): C
   const links = readTaskLinks(database, task.id);
   const originalPrimaryLink = selectPrimaryLink(links);
   const completedQuiz = task.generationStatus === 'ready' ? completedQuizReview(database, task.ownerId, links) : null;
+  const learningStatus = task.generationStatus === 'ready'
+    ? resolvedLearningStatus(database, task.ownerId, task.learningStatus, links)
+    : task.learningStatus;
   // Old submissions removed the quiz. The immutable result is still a valid task target.
-  const primaryLink = originalPrimaryLink?.entityType === 'classroom_quiz' && completedQuiz ? completedQuiz : originalPrimaryLink;
+  const completedPaper = task.generationStatus === 'ready' ? completedPaperReview(database, task.ownerId, links) : null;
+  const primaryLink = originalPrimaryLink?.entityType === 'classroom_quiz' && completedQuiz ? completedQuiz
+    : originalPrimaryLink?.entityType === 'assessment_paper' && completedPaper ? completedPaper : originalPrimaryLink;
   return {
     id: task.id,
     source: 'task',
@@ -145,7 +150,7 @@ function toTaskSummary(database: Database.Database, task: LearningTaskRecord): C
     book: book ? { id: book.id, title: book.title } : null,
     chapterTitles: chapterTitles(book, task.chapterIds),
     generationStatus: task.generationStatus,
-    learningStatus: completedQuiz ? 'completed' : task.learningStatus,
+    learningStatus,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     primaryLink,
@@ -164,6 +169,11 @@ function hasTable(database: Database.Database, name: string): boolean {
   return Boolean(database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name));
 }
 
+function hasColumn(database: Database.Database, table: string, column: string): boolean {
+  return hasTable(database, table)
+    && (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(item => item.name === column);
+}
+
 function completedQuizReview(database: Database.Database, ownerId: string, links: TaskLink[]): TaskLink | null {
   const quizIds = links.filter(link => link.entityType === 'classroom_quiz').map(link => link.entityId);
   if (!quizIds.length || !hasTable(database, 'quiz_results')) return null;
@@ -173,6 +183,53 @@ function completedQuizReview(database: Database.Database, ownerId: string, links
     ORDER BY createdAt DESC, id ASC LIMIT 1
   `).get(ownerId, ...quizIds) as { id: string; createdAt: number } | undefined;
   return result ? { entityType: 'quiz_result', entityId: result.id, role: 'primary', createdAt: result.createdAt } : null;
+}
+
+function completedPaperReview(database: Database.Database, ownerId: string, links: TaskLink[]): TaskLink | null {
+  const ids = links.filter(link => link.entityType === 'assessment_paper').map(link => link.entityId);
+  if (!ids.length || !hasTable(database, 'paper_attempts')) return null;
+  const result = database.prepare(`
+    SELECT id, createdAt FROM paper_attempts
+    WHERE ownerId = ? AND paperId IN (${ids.map(() => '?').join(',')}) AND status = 'submitted'
+    ORDER BY createdAt DESC, id ASC LIMIT 1
+  `).get(ownerId, ...ids) as { id: string; createdAt: number } | undefined;
+  return result ? { entityType: 'paper_attempt', entityId: result.id, role: 'primary', createdAt: result.createdAt } : null;
+}
+
+// Both classroom and generated-material lists derive progress from the same owned evidence.
+// Reading or playing alone is not a submission; these queries never rewrite answer snapshots.
+export function resolvedLearningStatus(database: Database.Database, ownerId: string, initialStatus: LearningTaskLearningStatus, links: TaskLink[]): LearningTaskLearningStatus {
+  if (initialStatus === 'completed') return 'completed';
+  if (completedQuizReview(database, ownerId, links)) return 'completed';
+
+  const paperIds = links.filter(link => link.entityType === 'assessment_paper').map(link => link.entityId);
+  let started = initialStatus === 'in_progress';
+  if (paperIds.length && hasTable(database, 'paper_attempts')) {
+    for (const id of paperIds) {
+      const attempts = database.prepare(`SELECT status FROM paper_attempts WHERE ownerId = ? AND paperId = ?`).all(ownerId, id) as Array<{ status: string }>;
+      if (attempts.some(attempt => attempt.status === 'submitted')) return 'completed';
+      if (attempts.some(attempt => attempt.status === 'draft')) started = true;
+    }
+  }
+
+  const packageIds = links.filter(link => link.entityType === 'learning_package').map(link => link.entityId);
+  if (packageIds.length && hasTable(database, 'learning_package_progress')) {
+    for (const packageId of packageIds) {
+      const progress = database.prepare(`
+        SELECT completedPlays, submittedAt FROM learning_package_progress
+        WHERE ownerId = ? AND packageId = ?
+      `).get(ownerId, packageId) as { completedPlays?: number; submittedAt?: number | null } | undefined;
+      if (progress?.submittedAt != null) return 'completed';
+      if ((progress?.completedPlays || 0) > 0) started = true;
+    }
+  }
+
+  const coursewareIds = links.filter(link => link.entityType === 'classroom_courseware').map(link => link.entityId);
+  if (coursewareIds.length && hasColumn(database, 'classroom_items', 'lastStudiedAt') && coursewareIds.some(id => Boolean(database.prepare(`
+    SELECT 1 FROM classroom_items WHERE id = ? AND ownerId = ? AND lastStudiedAt IS NOT NULL LIMIT 1
+  `).get(id, ownerId)))) started = true;
+
+  return started ? 'in_progress' : initialStatus;
 }
 
 function legacySummaries(database: Database.Database, ownerId: string): ClassroomTaskSummary[] {
@@ -225,7 +282,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         book: null,
         chapterTitles: item.chapter ? [item.chapter] : [],
         generationStatus: 'ready',
-        learningStatus: review ? 'completed' : 'not_started',
+        learningStatus: resolvedLearningStatus(database, ownerId, 'not_started', [originalLink]),
         createdAt: item.createdAt,
         updatedAt: item.createdAt,
         primaryLink: review || originalLink,
@@ -236,6 +293,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
       const book: BookRow | null = item.bookTitle ? {
         id: item.bookId, title: item.bookTitle, subject: item.subject, grade: item.grade, tableOfContents: item.tableOfContents,
       } : null;
+      const link: TaskLink = { entityType: 'learning_package', entityId: item.id, role: 'primary', createdAt: item.createdAt };
       return {
         id: `legacy:learning_package:${item.id}`,
         source: 'legacy' as const,
@@ -246,10 +304,10 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         book: book ? { id: book.id, title: book.title } : null,
         chapterTitles: chapterTitles(book, parseJson<string[]>(item.chapterIdsJson, [])),
         generationStatus: item.status === 'completed' ? 'ready' : item.status,
-        learningStatus: 'not_started',
+        learningStatus: item.status === 'completed' ? resolvedLearningStatus(database, ownerId, 'not_started', [link]) : 'not_started',
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
-        primaryLink: { entityType: 'learning_package', entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
+        primaryLink: link,
         retryable: false,
       };
     }),
@@ -257,6 +315,7 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
       const book: BookRow | null = item.bookTitle ? {
         id: item.bookId, title: item.bookTitle, subject: item.subject, grade: item.grade, tableOfContents: item.tableOfContents,
       } : null;
+      const link: TaskLink = { entityType: 'assessment_paper', entityId: item.id, role: 'paper', createdAt: item.createdAt };
       return {
         id: `legacy:assessment_paper:${item.id}`,
         source: 'legacy' as const,
@@ -267,10 +326,10 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
         book: book ? { id: book.id, title: book.title } : null,
         chapterTitles: chapterTitles(book, parseJson<string[]>(item.chapterIdsJson, [])),
         generationStatus: item.status === 'completed' ? 'ready' : item.status,
-        learningStatus: 'not_started',
+        learningStatus: item.status === 'completed' ? resolvedLearningStatus(database, ownerId, 'not_started', [link]) : 'not_started',
         createdAt: item.createdAt,
         updatedAt: item.createdAt,
-        primaryLink: { entityType: 'assessment_paper', entityId: item.id, role: 'paper' as const, createdAt: item.createdAt },
+        primaryLink: item.status === 'completed' ? completedPaperReview(database, ownerId, [link]) || link : link,
         retryable: false,
       };
     }),
@@ -376,6 +435,7 @@ export function learningTaskTargetExists(database: Database.Database, ownerId: u
     learning_package: { table: 'learning_packages' },
     assessment_paper: { table: 'assessment_papers' },
     quiz_result: { table: 'quiz_results' },
+    paper_attempt: { table: 'paper_attempts' },
     external_resource: { table: 'external_resources' },
   };
   const target = tableByEntityType[link.entityType];
@@ -396,7 +456,9 @@ export function getClassroomTask(database: Database.Database, taskId: string, ow
   if (!task) return null;
   const summary = toTaskSummary(database, task);
   const links = readTaskLinks(database, task.id);
-  if (summary.primaryLink?.entityType === 'quiz_result' && !links.some(link => link.entityType === 'quiz_result' && link.entityId === summary.primaryLink!.entityId)) {
+  const practiceReview = task.generationStatus === 'ready' ? completedQuizReview(database, owner, links) : null;
+  if (practiceReview && !links.some(link => link.entityType === 'quiz_result' && link.entityId === practiceReview.entityId)) links.push(practiceReview);
+  if (summary.primaryLink && ['quiz_result', 'paper_attempt'].includes(summary.primaryLink.entityType) && !links.some(link => link.entityType === summary.primaryLink!.entityType && link.entityId === summary.primaryLink!.entityId)) {
     links.unshift(summary.primaryLink);
   }
   const events = database.prepare(`

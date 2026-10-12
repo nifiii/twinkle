@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { parseLearningOwnerId } from './learningDomain.js';
-import { LearningTaskValidationError, LearningTaskRecord, getLearningTask, listLearningTasks } from './learningTaskService.js';
+import { LearningTaskValidationError, getLearningTask, listLearningTasks } from './learningTaskService.js';
+import { resolvedLearningStatus } from './classroomTaskQueryService.js';
 
 type GeneratedEntityType = 'classroom_courseware' | 'classroom_quiz' | 'learning_package' | 'assessment_paper';
 type TaskLink = { entityType: GeneratedEntityType; entityId: string; role: 'primary' | 'explanation' | 'practice' | 'resource' | 'paper'; createdAt: number };
@@ -63,23 +64,6 @@ function entityExists(database: Database.Database, ownerId: string, link: Pick<T
   return Boolean(row);
 }
 
-function hasCompletedQuiz(database: Database.Database, ownerId: string, links: TaskLink[]): boolean {
-  const quizIds = links.filter(link => link.entityType === 'classroom_quiz').map(link => link.entityId);
-  return quizIds.some(quizId => Boolean(database.prepare(`SELECT 1 FROM quiz_results WHERE ownerId = ? AND quizId = ? AND status IN ('submitted', 'completed') LIMIT 1`).get(ownerId, quizId)));
-}
-
-function resolvedLearningStatus(database: Database.Database, task: LearningTaskRecord, links: TaskLink[]): GeneratedMaterial['learningStatus'] {
-  if (task.learningStatus === 'completed') return 'completed';
-  if (hasCompletedQuiz(database, task.ownerId, links)) return 'completed';
-  const paperIds = links.filter(link => link.entityType === 'assessment_paper').map(link => link.entityId);
-  if (paperIds.some(id => Boolean(database.prepare(`SELECT 1 FROM paper_attempts WHERE ownerId = ? AND paperId = ? AND status = 'submitted' LIMIT 1`).get(task.ownerId, id)))) return 'completed';
-  const packageIds = links.filter(link => link.entityType === 'learning_package').map(link => link.entityId);
-  if (packageIds.some(id => Boolean(database.prepare(`SELECT 1 FROM learning_package_progress WHERE ownerId = ? AND packageId = ? AND submittedAt IS NOT NULL LIMIT 1`).get(task.ownerId, id)))) return 'completed';
-  const coursewareIds = links.filter(link => link.entityType === 'classroom_courseware').map(link => link.entityId);
-  if (coursewareIds.some(id => Boolean(database.prepare(`SELECT 1 FROM classroom_items WHERE id = ? AND ownerId = ? AND lastStudiedAt IS NOT NULL LIMIT 1`).get(id, task.ownerId)))) return 'in_progress';
-  return task.learningStatus;
-}
-
 function cursorValue(item: GeneratedMaterial): string {
   return Buffer.from(JSON.stringify({ createdAt: item.createdAt, taskId: item.taskId }), 'utf8').toString('base64url');
 }
@@ -115,7 +99,7 @@ export function listGeneratedLearningMaterials(
         taskId: task.id, taskType: task.taskType, title: task.title, subject: task.subject,
         book: book ? { id: book.id, title: book.title } : null,
         chapterTitles: chapterTitles(book || null, task.chapterIds),
-        learningStatus: resolvedLearningStatus(database, task, links), createdAt: task.createdAt, primaryLink: primary,
+        learningStatus: resolvedLearningStatus(database, ownerId, task.learningStatus, links), createdAt: task.createdAt, primaryLink: primary,
       };
     })
     .filter((item): item is GeneratedMaterial => Boolean(item))

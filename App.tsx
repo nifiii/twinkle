@@ -414,9 +414,9 @@ const App: React.FC = () => {
           }
           if (tutorSubPath.startsWith('paper/')) {
             const [, paperId, view, attemptId] = tutorSubPath.split('/');
-            if (paperId === 'review' && view) return <AttemptDiagnosis attemptId={decodeURIComponent(view)} currentUser={currentUser} onBack={() => handleTabChange('resources', 'capture')} />;
+            if (paperId === 'review' && view) return <AttemptDiagnosis attemptId={decodeURIComponent(view)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} />;
             if (view === 'preview') return <PaperPreview paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
-            if (view === 'review' && attemptId) return <AttemptDiagnosis attemptId={decodeURIComponent(attemptId)} currentUser={currentUser} onBack={() => handleTabChange('tutor', `paper/${paperId}`)} />;
+            if (view === 'review' && attemptId) return <AttemptDiagnosis attemptId={decodeURIComponent(attemptId)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} />;
             return <PaperExam paperId={decodeURIComponent(paperId)} currentUser={currentUser} onBack={() => handleTabChange('tutor')} onPreview={() => handleTabChange('tutor', `paper/${paperId}/preview`)} onSubmitted={(attemptId) => handleTabChange('tutor', `paper/${paperId}/review/${attemptId}`)} />;
           }
           return tutorSubPath === '' || tutorSubPath.startsWith('task/')

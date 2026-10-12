@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Lightbulb, Loader2 } from 'lucide-react';
-import { ClassroomTaskApiError, fetchLegacyClassroomContent } from '../services/classroomTaskApi';
+import { ClassroomTaskApiError, fetchLegacyClassroomContent, markClassroomStudied } from '../services/classroomTaskApi';
 
 type StudentCoursewareStep = {
   id: string;
@@ -28,6 +28,7 @@ interface StudentCoursewareReaderProps {
   chapterTitles: string[];
   onBack: () => void;
   onOpenQuiz: () => void;
+  practiceCompleted?: boolean;
 }
 
 function isStudentCourseware(value: unknown): value is StudentCourseware {
@@ -53,7 +54,7 @@ const STEP_KIND_LABEL: Record<StudentCoursewareStep['kind'], string> = {
   objective: '学习目标', explanation: '分步讲解', example: '跟着示例做', self_check: '即时自检', misconception: '易错提醒', summary: '本节小结',
 };
 
-const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ coursewareId, ownerId, title, chapterTitles, onBack, onOpenQuiz }) => {
+const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ coursewareId, ownerId, title, chapterTitles, onBack, onOpenQuiz, practiceCompleted = false }) => {
   const [courseware, setCourseware] = useState<StudentCourseware | null>(null);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -61,15 +62,20 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
   const [loading, setLoading] = useState(true);
   const [retired, setRetired] = useState(false);
   const [error, setError] = useState('');
+  const [progressError, setProgressError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setError(''); setRetired(false); setCourseware(null); setIndex(0); setAnswers({}); setChecked({});
+    setLoading(true); setError(''); setProgressError(''); setRetired(false); setCourseware(null); setIndex(0); setAnswers({}); setChecked({});
     fetchLegacyClassroomContent(coursewareId, ownerId)
       .then(value => {
         if (cancelled) return;
         if (!isStudentCourseware(value.content)) throw new Error('该学习内容不是可阅读的学生自学课件');
         setCourseware(value.content);
+        // Reading marks the course as in progress; only its submitted practice completes it.
+        if (!practiceCompleted) void markClassroomStudied(coursewareId, ownerId).catch(() => {
+          if (!cancelled) setProgressError('学习进度保存失败，请重新打开课件重试。课件仍可继续阅读。');
+        });
       })
       .catch(reason => {
         if (cancelled) return;
@@ -78,7 +84,7 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [coursewareId, ownerId]);
+  }, [coursewareId, ownerId, practiceCompleted]);
 
   const step = courseware?.steps[index];
   const completedChecks = useMemo(() => Object.values(checked).filter(Boolean).length, [checked]);
@@ -94,6 +100,7 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
 
   return <section className="mx-auto max-w-4xl space-y-5" aria-labelledby="student-courseware-title">
     <button type="button" onClick={onBack} className="inline-flex min-h-10 items-center gap-2 text-sm text-neon-blue focus:outline-none focus:ring-2 focus:ring-neon-blue"><ArrowLeft size={18} />返回智慧课堂</button>
+    {progressError && <p role="alert" className="text-sm text-amber-700">{progressError}</p>}
     <header className="rounded-xl border border-cyber-border/60 bg-cyber-surface/60 p-5">
       <p className="text-sm text-neon-blue">学生自学课件</p><h1 id="student-courseware-title" className="mt-1 text-xl font-semibold text-cyber-text">{title}</h1>
       {chapterTitles.length > 0 && <p className="mt-2 text-sm text-cyber-muted">{chapterTitles.join('、')}</p>}
@@ -108,7 +115,7 @@ const StudentCoursewareReader: React.FC<StudentCoursewareReaderProps> = ({ cours
       {step.kind === 'misconception' && <div className="mt-5 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><Lightbulb size={18} className="shrink-0" />先自己判断，再回到题目逐项核对。</div>}
       {isLast && <section className="mt-5 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"><h3 className="font-medium">完成小结</h3><ul className="mt-2 list-disc space-y-1 pl-5">{courseware.summary.map(item => <li key={item}>{item}</li>)}</ul><p className="mt-3">学习建议：{courseware.studyTip}</p></section>}
     </article>
-    <footer className="flex flex-wrap items-center justify-between gap-3"><button type="button" disabled={index === 0} onClick={() => setIndex(previous => previous - 1)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-cyber-border/60 px-3 text-sm text-cyber-text disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-neon-blue"><ChevronLeft size={18} />上一步</button>{isLast ? <button type="button" onClick={onOpenQuiz} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">进入随堂测验<ChevronRight size={18} /></button> : <button type="button" onClick={() => setIndex(previous => previous + 1)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">下一步<ChevronRight size={18} /></button>}</footer>
+    <footer className="flex flex-wrap items-center justify-between gap-3"><button type="button" disabled={index === 0} onClick={() => setIndex(previous => previous - 1)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-cyber-border/60 px-3 text-sm text-cyber-text disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-neon-blue"><ChevronLeft size={18} />上一步</button>{isLast ? <button type="button" onClick={onOpenQuiz} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">{practiceCompleted ? '查看随堂作答回顾' : '进入随堂测验'}<ChevronRight size={18} /></button> : <button type="button" onClick={() => setIndex(previous => previous + 1)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-neon-blue px-4 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-neon-blue">下一步<ChevronRight size={18} /></button>}</footer>
   </section>;
 };
 

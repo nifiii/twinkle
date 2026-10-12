@@ -140,6 +140,12 @@ export function fetchLegacyClassroomContent(id: string, ownerId?: string): Promi
   return request<LegacyClassroomContent>(`/api/classroom/${encodeURIComponent(id)}${query}`);
 }
 
+export function markClassroomStudied(id: string, ownerId: string): Promise<{ id: string; lastStudiedAt: number }> {
+  return request(`/api/classroom/${encodeURIComponent(id)}/mark-studied`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerId }),
+  });
+}
+
 export function fetchLegacyQuizResult(id: string, ownerId: string): Promise<LegacyQuizResult> {
   return request<LegacyQuizResult>(`/api/quiz-results/${encodeURIComponent(id)}?${new URLSearchParams({ ownerId })}`);
 }
