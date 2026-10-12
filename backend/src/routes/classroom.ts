@@ -149,8 +149,7 @@ router.post('/quiz-result/start', (req: Request, res: Response) => {
       0, 0, 0, JSON.stringify(createReviewItems(questions, answers || {})), '', 'submitted', Date.now()
     );
 
-    // 立即删除原测验记录
-    db.prepare('DELETE FROM classroom_items WHERE id = ?').run(quizId);
+    // 提交仅追加作答快照；原测验仍是任务和学习资料的来源，不能在此删除。
 
     return res.json({ success: true, id, status: 'submitted' });
   } catch (err: any) {

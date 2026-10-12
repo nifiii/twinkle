@@ -110,6 +110,90 @@ test('indexes a historical classroom quiz result and resolves its native detail 
   assert.equal(learningTaskTargetExists(database, 'child_1', result.items[0]!.primaryLink!), true);
 });
 
+test('submitted quiz records are ready completed history without changing their stored status', () => {
+  const database = createDatabase();
+  database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, status TEXT, createdAt INTEGER)`);
+  for (const status of ['submitted', 'completed', 'grading', 'failed']) {
+    database.prepare(`INSERT INTO quiz_results VALUES (?, 'quiz-1', '数学四上', '公顷和平方千米', '数学', 'child_1', ?, 2000)`).run(status, status);
+  }
+  const results = listClassroomTasks(database, 'child_1', { taskType: 'quiz_result' }).items;
+  for (const status of ['submitted', 'completed']) {
+    const result = results.find(item => item.id === `legacy:quiz_result:${status}`)!;
+    assert.equal(result.generationStatus, 'ready');
+    assert.equal(result.learningStatus, 'completed');
+    assert.equal(getClassroomTask(database, result.id, 'child_1')?.generationStatus, 'ready');
+    assert.equal(getClassroomTask(database, result.id, 'child_2'), null);
+  }
+  for (const status of ['grading', 'failed']) {
+    assert.notEqual(results.find(item => item.id === `legacy:quiz_result:${status}`)?.learningStatus, 'completed');
+  }
+  assert.equal((database.prepare(`SELECT status FROM quiz_results WHERE id = 'submitted'`).get() as { status: string }).status, 'submitted');
+  database.close();
+});
+
+test('completed quiz tasks project an owned review link even when a previous submission removed the quiz', () => {
+  const database = createDatabase();
+  database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, status TEXT, createdAt INTEGER)`);
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'finished-thinking', taskType: 'math_thinking', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '公顷和平方千米·思维训练', bookId: 'book-1', chapterIds: ['1'],
+  }, 1000);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1100 });
+  completeLearningTask(database, task.id, [{ entityType: 'classroom_quiz', entityId: 'missing-quiz', role: 'primary' }], 1200);
+  // Another student's newer result must not unlock or replace this student's task.
+  database.prepare(`INSERT INTO quiz_results VALUES ('other-result', 'missing-quiz', '数学四上', '公顷和平方千米', '数学', 'child_2', 'submitted', 3000)`).run();
+  assert.equal(getClassroomTask(database, task.id, 'child_1')?.learningStatus, 'not_started');
+  database.prepare(`INSERT INTO quiz_results VALUES ('own-result', 'missing-quiz', '数学四上', '公顷和平方千米', '数学', 'child_1', 'submitted', 2000)`).run();
+  const detail = getClassroomTask(database, task.id, 'child_1')!;
+  assert.equal(detail.learningStatus, 'completed');
+  assert.equal(detail.primaryLink?.entityType, 'quiz_result');
+  assert.equal(detail.primaryLink?.entityId, 'own-result');
+  assert.ok(detail.links.some(link => link.entityType === 'quiz_result' && link.entityId === 'own-result'));
+  assert.equal(learningTaskTargetExists(database, 'child_1', detail.primaryLink!), true);
+  assert.equal(listClassroomTasks(database, 'child_1').items.find(item => item.id === task.id)?.learningStatus, 'completed');
+  assert.equal(listClassroomTasks(database, 'child_1').items.filter(item => item.primaryLink?.entityId === 'own-result').length, 1, 'review adopted by its original task appears once');
+  assert.equal((database.prepare('SELECT learningStatus FROM learning_tasks WHERE id = ?').get(task.id) as { learningStatus: string }).learningStatus, 'not_started');
+  assert.equal((database.prepare('SELECT entityType FROM learning_task_links WHERE taskId = ?').get(task.id) as { entityType: string }).entityType, 'classroom_quiz');
+  database.close();
+});
+
+test('a standalone completed quiz remains reviewable without a duplicate pending quiz or history entry', () => {
+  const database = createDatabase();
+  database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, status TEXT, createdAt INTEGER)`);
+  database.prepare(`INSERT INTO classroom_items VALUES ('standalone-quiz', 'quiz', '数学四上', '公顷和平方千米', '数学', 'child_1', 1000)`).run();
+  database.prepare(`INSERT INTO quiz_results VALUES ('standalone-result', 'standalone-quiz', '数学四上', '公顷和平方千米', '数学', 'child_1', 'submitted', 2000)`).run();
+  const page = listClassroomTasks(database, 'child_1');
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].learningStatus, 'completed');
+  assert.equal(page.items[0].primaryLink?.entityId, 'standalone-result');
+  assert.equal(getClassroomTask(database, 'legacy:classroom_quiz:standalone-quiz', 'child_1')?.primaryLink?.entityType, 'quiz_result');
+  assert.equal(getClassroomTask(database, 'legacy:quiz_result:standalone-result', 'child_1')?.learningStatus, 'completed', 'previous history links stay valid');
+  database.close();
+});
+
+test('courseware retains its reader while its completed practice remains accessible as history', () => {
+  const database = createDatabase();
+  seedLegacyContent(database);
+  database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, status TEXT, createdAt INTEGER)`);
+  database.prepare(`INSERT INTO classroom_items VALUES ('practice-quiz', 'quiz', '数学四上', '第一单元', '数学', 'child_1', 1000)`).run();
+  database.prepare(`INSERT INTO quiz_results VALUES ('practice-result', 'practice-quiz', '数学四上', '第一单元', '数学', 'child_1', 'submitted', 2000)`).run();
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'courseware-practice', taskType: 'courseware', sourceType: 'chapter',
+    subject: '数学', grade: '四年级', title: '第一单元·课件', bookId: 'book-1', chapterIds: ['1'],
+  }, 1000);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 1100 });
+  completeLearningTask(database, task.id, [
+    { entityType: 'classroom_courseware', entityId: 'classroom-1', role: 'primary' },
+    { entityType: 'classroom_quiz', entityId: 'practice-quiz', role: 'practice' },
+  ], 1200);
+  const items = listClassroomTasks(database, 'child_1').items;
+  assert.equal(items.find(item => item.id === task.id)?.learningStatus, 'completed');
+  assert.equal(items.find(item => item.id === task.id)?.primaryLink?.entityType, 'classroom_courseware');
+  assert.equal(items.filter(item => item.taskType === 'classroom_quiz').length, 0, 'practice does not duplicate its parent task');
+  assert.equal(items.find(item => item.id === 'legacy:quiz_result:practice-result')?.primaryLink?.entityType, 'quiz_result', 'courseware practice history still has an entry');
+  database.close();
+});
+
 test('returns task source, links, and events without embedding original content', () => {
   const database = createDatabase();
   seedLegacyContent(database);

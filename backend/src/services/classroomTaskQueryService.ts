@@ -131,7 +131,10 @@ function retryState(task: LearningTaskRecord): Pick<ClassroomTaskSummary, 'retry
 function toTaskSummary(database: Database.Database, task: LearningTaskRecord): ClassroomTaskSummary {
   const book = findBook(database, task.ownerId, task.bookId);
   const links = readTaskLinks(database, task.id);
-  const primaryLink = selectPrimaryLink(links);
+  const originalPrimaryLink = selectPrimaryLink(links);
+  const completedQuiz = task.generationStatus === 'ready' ? completedQuizReview(database, task.ownerId, links) : null;
+  // Old submissions removed the quiz. The immutable result is still a valid task target.
+  const primaryLink = originalPrimaryLink?.entityType === 'classroom_quiz' && completedQuiz ? completedQuiz : originalPrimaryLink;
   return {
     id: task.id,
     source: 'task',
@@ -142,7 +145,7 @@ function toTaskSummary(database: Database.Database, task: LearningTaskRecord): C
     book: book ? { id: book.id, title: book.title } : null,
     chapterTitles: chapterTitles(book, task.chapterIds),
     generationStatus: task.generationStatus,
-    learningStatus: task.learningStatus,
+    learningStatus: completedQuiz ? 'completed' : task.learningStatus,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     primaryLink,
@@ -159,6 +162,17 @@ function packageTaskType(kind: string): string {
 
 function hasTable(database: Database.Database, name: string): boolean {
   return Boolean(database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name));
+}
+
+function completedQuizReview(database: Database.Database, ownerId: string, links: TaskLink[]): TaskLink | null {
+  const quizIds = links.filter(link => link.entityType === 'classroom_quiz').map(link => link.entityId);
+  if (!quizIds.length || !hasTable(database, 'quiz_results')) return null;
+  const result = database.prepare(`
+    SELECT id, createdAt FROM quiz_results
+    WHERE ownerId = ? AND quizId IN (${quizIds.map(() => '?').join(',')}) AND status IN ('submitted', 'completed')
+    ORDER BY createdAt DESC, id ASC LIMIT 1
+  `).get(ownerId, ...quizIds) as { id: string; createdAt: number } | undefined;
+  return result ? { entityType: 'quiz_result', entityId: result.id, role: 'primary', createdAt: result.createdAt } : null;
 }
 
 function legacySummaries(database: Database.Database, ownerId: string): ClassroomTaskSummary[] {
@@ -198,22 +212,26 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
     : [];
 
   return [
-    ...classroom.map(item => ({
-      id: `legacy:classroom_${item.type === 'quiz' ? 'quiz' : 'courseware'}:${item.id}`,
-      source: 'legacy' as const,
-      taskType: item.type === 'quiz' ? 'classroom_quiz' : 'courseware',
-      title: `${item.bookTitle}·${item.chapter}`,
-      subject: item.subject,
-      grade: null,
-      book: null,
-      chapterTitles: item.chapter ? [item.chapter] : [],
-      generationStatus: 'ready',
-      learningStatus: 'not_started',
-      createdAt: item.createdAt,
-      updatedAt: item.createdAt,
-      primaryLink: { entityType: `classroom_${item.type === 'quiz' ? 'quiz' : 'courseware'}`, entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
-      retryable: false,
-    })),
+    ...classroom.map(item => {
+      const originalLink: TaskLink = { entityType: `classroom_${item.type === 'quiz' ? 'quiz' : 'courseware'}`, entityId: item.id, role: 'primary', createdAt: item.createdAt };
+      const review = item.type === 'quiz' ? completedQuizReview(database, ownerId, [originalLink]) : null;
+      return {
+        id: `legacy:classroom_${item.type === 'quiz' ? 'quiz' : 'courseware'}:${item.id}`,
+        source: 'legacy' as const,
+        taskType: item.type === 'quiz' ? 'classroom_quiz' : 'courseware',
+        title: `${item.bookTitle}·${item.chapter}`,
+        subject: item.subject,
+        grade: null,
+        book: null,
+        chapterTitles: item.chapter ? [item.chapter] : [],
+        generationStatus: 'ready',
+        learningStatus: review ? 'completed' : 'not_started',
+        createdAt: item.createdAt,
+        updatedAt: item.createdAt,
+        primaryLink: review || originalLink,
+        retryable: false,
+      };
+    }),
     ...packages.map(item => {
       const book: BookRow | null = item.bookTitle ? {
         id: item.bookId, title: item.bookTitle, subject: item.subject, grade: item.grade, tableOfContents: item.tableOfContents,
@@ -265,8 +283,8 @@ function legacySummaries(database: Database.Database, ownerId: string): Classroo
       grade: null,
       book: null,
       chapterTitles: item.chapter ? [item.chapter] : [],
-      generationStatus: item.status === 'completed' ? 'ready' : item.status,
-      learningStatus: 'completed',
+      generationStatus: ['submitted', 'completed'].includes(item.status) ? 'ready' : item.status,
+      learningStatus: ['submitted', 'completed'].includes(item.status) ? 'completed' : 'not_started',
       createdAt: item.createdAt,
       updatedAt: item.createdAt,
       primaryLink: { entityType: 'quiz_result', entityId: item.id, role: 'primary' as const, createdAt: item.createdAt },
@@ -308,11 +326,17 @@ export function listClassroomTasks(database: Database.Database, ownerId: unknown
   const tasks = listLearningTasks(database, owner).map(task => toTaskSummary(database, task));
   // New tasks reference the original entity directly. Keep legacy rows only for entities
   // that have not yet been adopted, otherwise students see the same work twice.
-  const linkedTargets = new Set(tasks.flatMap(task => readTaskLinks(database, task.id))
+  const linkedTargets = new Set(tasks.flatMap(task => [...readTaskLinks(database, task.id), ...(task.primaryLink ? [task.primaryLink] : [])])
     .map(link => `${link.entityType}:${link.entityId}`));
+  const legacy = legacySummaries(database, owner).filter(item => {
+    const original = parseLegacyTaskReference(item.id);
+    return (!original || !linkedTargets.has(`${original.entityType}:${original.entityId}`))
+      && (!item.primaryLink || !linkedTargets.has(`${item.primaryLink.entityType}:${item.primaryLink.entityId}`));
+  });
+  const representedReviews = new Set(legacy.filter(item => item.taskType === 'classroom_quiz' && item.primaryLink?.entityType === 'quiz_result').map(item => item.primaryLink!.entityId));
   const items = [
     ...tasks,
-    ...legacySummaries(database, owner).filter(item => !item.primaryLink || !linkedTargets.has(`${item.primaryLink.entityType}:${item.primaryLink.entityId}`)),
+    ...legacy.filter(item => item.taskType !== 'quiz_result' || !representedReviews.has(item.primaryLink!.entityId)),
   ]
     .filter(item => matchesFilters(item, filters))
     .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
@@ -372,6 +396,9 @@ export function getClassroomTask(database: Database.Database, taskId: string, ow
   if (!task) return null;
   const summary = toTaskSummary(database, task);
   const links = readTaskLinks(database, task.id);
+  if (summary.primaryLink?.entityType === 'quiz_result' && !links.some(link => link.entityType === 'quiz_result' && link.entityId === summary.primaryLink!.entityId)) {
+    links.unshift(summary.primaryLink);
+  }
   const events = database.prepare(`
     SELECT eventType, detailJson, createdAt FROM learning_task_events
     WHERE taskId = ? ORDER BY createdAt DESC LIMIT 10

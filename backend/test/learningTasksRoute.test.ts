@@ -79,6 +79,49 @@ test('learning task API returns a paged index and stable context and missing-tar
 
     const unknownClassroom = await fetch(`${baseUrl.replace('/learning-tasks', '/classroom/unknown-courseware')}?ownerId=child_1`);
     assert.equal(unknownClassroom.status, 404);
+
+    const { completeLearningTask, createLearningTask, updateLearningTaskGenerationStatus } = await import('../src/services/learningTaskService.js');
+    const { task } = createLearningTask(db, {
+      ownerId: 'child_1', requestKey: 'review-roundtrip', taskType: 'math_thinking', sourceType: 'chapter',
+      subject: '数学', grade: '四年级', title: '公顷和平方千米·思维训练', bookId: 'math-book', chapterIds: ['c1'],
+    });
+    updateLearningTaskGenerationStatus(db, task.id, 'running');
+    const questions = [{ id: 'q1', type: 'choice', question: '1 公顷等于多少平方米？', options: ['1000', '10000'], answer: '10000', explanation: '1 公顷等于 10000 平方米。' }];
+    db.prepare(`INSERT INTO classroom_items (id, type, bookTitle, chapter, subject, ownerId, contentJson, createdAt) VALUES ('review-quiz', 'quiz', '数学四上', '公顷和平方千米', '数学', 'child_1', ?, 1000)`).run(JSON.stringify(questions));
+    completeLearningTask(db, task.id, [{ entityType: 'classroom_quiz', entityId: 'review-quiz', role: 'primary' }]);
+    const submission = await fetch(baseUrl.replace('/learning-tasks', '/quiz-result/start'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizId: 'review-quiz', questions, answers: { q1: '1000' }, bookTitle: '数学四上', chapter: '公顷和平方千米', subject: '数学', ownerId: 'child_1', userName: '大宝' }),
+    });
+    assert.equal(submission.status, 200);
+    const submitted = await submission.json() as { id: string; status: string };
+    assert.equal(submitted.status, 'submitted');
+    assert.ok(db.prepare(`SELECT id FROM classroom_items WHERE id = 'review-quiz'`).get(), 'submitting must not delete generated quiz');
+    const snapshot = (db.prepare('SELECT resultsJson FROM quiz_results WHERE id = ?').get(submitted.id) as { resultsJson: string }).resultsJson;
+    // Old submissions removed the quiz. Its original task must still open the saved review.
+    db.prepare(`DELETE FROM classroom_items WHERE id = 'review-quiz'`).run();
+    const taskDetail = await fetch(`${baseUrl}/${task.id}?ownerId=child_1`);
+    assert.equal(taskDetail.status, 200);
+    const detailBody = await taskDetail.json() as { data: { learningStatus: string; primaryLink: { entityType: string; entityId: string } } };
+    assert.equal(detailBody.data.learningStatus, 'completed');
+    assert.deepEqual({ entityType: detailBody.data.primaryLink.entityType, entityId: detailBody.data.primaryLink.entityId }, { entityType: 'quiz_result', entityId: submitted.id });
+    const history = await fetch(`${baseUrl}/${encodeURIComponent(`legacy:quiz_result:${submitted.id}`)}?ownerId=child_1`);
+    assert.equal(history.status, 200);
+    const historyBody = await history.json() as { data: { generationStatus: string; learningStatus: string } };
+    assert.equal(historyBody.data.generationStatus, 'ready');
+    assert.equal(historyBody.data.learningStatus, 'completed');
+    for (let read = 0; read < 2; read++) {
+      const reviewResponse = await fetch(`${baseUrl.replace('/learning-tasks', `/quiz-results/${submitted.id}`)}?ownerId=child_1`);
+      assert.equal(reviewResponse.status, 200);
+      const reviewBody = await reviewResponse.json() as { data: { items: Array<{ question: string; studentAnswer: string; referenceAnswer: string; explanation: string }> } };
+      assert.equal(reviewBody.data.items[0].studentAnswer, '1000');
+      assert.equal(reviewBody.data.items[0].referenceAnswer, '10000');
+      assert.equal(reviewBody.data.items[0].question, questions[0].question);
+      assert.equal(reviewBody.data.items[0].explanation, questions[0].explanation);
+    }
+    const otherStudent = await fetch(`${baseUrl.replace('/learning-tasks', `/quiz-results/${submitted.id}`)}?ownerId=child_2`);
+    assert.equal(otherStudent.status, 404);
+    assert.equal((db.prepare('SELECT resultsJson FROM quiz_results WHERE id = ?').get(submitted.id) as { resultsJson: string }).resultsJson, snapshot);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     db.close();

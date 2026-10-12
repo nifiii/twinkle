@@ -21,6 +21,7 @@ type StoredQuestion = {
   stem?: unknown;
   answer?: unknown;
   correctAnswer?: unknown;
+  referenceAnswer?: unknown;
   explanation?: unknown;
 };
 
@@ -40,7 +41,7 @@ export function createReviewItems(questions: StoredQuestion[], answers: Record<s
       type: text(question.type),
       question: text(question.question) || text(question.stem),
       studentAnswer: answers[questionId] || '',
-      referenceAnswer: text(question.correctAnswer) || text(question.answer),
+      referenceAnswer: text(question.referenceAnswer) || text(question.correctAnswer) || text(question.answer),
       explanation: text(question.explanation),
       needsReinforcement: false,
     };
