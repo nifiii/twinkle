@@ -3,6 +3,7 @@ import { ChapterNode } from '../types.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { extractPagesAsImages } from './imageService.js';
+import { ARK_EXTRACTION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 
 export interface RenderedPdfPages {
   directory: string;
@@ -12,9 +13,11 @@ export interface RenderedPdfPages {
 export type ModelPermit = () => Promise<() => void>;
 
 // 初始化 OpenAI 客户端 (适配火山引擎)
-const getDoubaoClient = () => {
+const getDoubaoClient = (purpose: 'text' | 'vision' = 'text') => {
   const apiKey = process.env.ARK_API_KEY;
-  const model = process.env.ARK_MODEL_ID;
+  const model = purpose === 'vision'
+    ? process.env.ARK_VISION_MODEL_ID || process.env.ARK_MODEL_ID
+    : process.env.ARK_MODEL_ID;
 
   if (!apiKey || !model) {
     throw new Error('缺少有效的 ARK_API_KEY 或 ARK_MODEL_ID 环境变量');
@@ -85,6 +88,7 @@ export async function analyzeMetadataWithDoubao(
 
   try {
     const completion = await client.chat.completions.create({
+      ...ARK_EXTRACTION_OPTIONS,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt }
@@ -97,7 +101,7 @@ export async function analyzeMetadataWithDoubao(
     const usage = completion.usage;
     console.log(`[Doubao][analyzeMetadata] <<< 完成 耗时=${elapsed}ms prompt_tokens=${usage?.prompt_tokens} completion_tokens=${usage?.completion_tokens}`);
 
-    const rawContent = completion.choices[0].message.content || '{}';
+    const rawContent = requireArkContent(completion);
     const cleanJson = rawContent.replace(/```json\n?|\n?```/g, '').trim();
     return JSON.parse(cleanJson);
   } catch (error: any) {
@@ -116,7 +120,7 @@ export async function extractMetadataFromPDFWithDoubao(
   renderedPages?: RenderedPdfPages,
   acquireVision?: ModelPermit,
 ): Promise<DoubaoMetadataResult> {
-  const { client, model } = getDoubaoClient();
+  const { client, model } = getDoubaoClient('vision');
 
   // 1. 调用本地 PDF 封面(或前几页)抽取服务提取多张图片
   const tempDir = renderedPages?.directory || path.join(process.cwd(), 'uploads', 'covers');
@@ -208,6 +212,7 @@ export async function extractMetadataFromPDFWithDoubao(
     let response: any;
     try {
       response = await client.chat.completions.create({
+        ...ARK_EXTRACTION_OPTIONS,
         model: model,
         temperature: 0.1,
         messages: [
@@ -223,7 +228,7 @@ export async function extractMetadataFromPDFWithDoubao(
     const elapsedVision = Date.now() - t0Vision;
     const usageVision = response.usage;
     console.log(`[Doubao][Vision] <<< 完成 耗时=${elapsedVision}ms prompt_tokens=${usageVision?.prompt_tokens} completion_tokens=${usageVision?.completion_tokens}`);
-    let content = response.choices[0].message.content;
+    let content = requireArkContent(response);
     if (!content) throw new Error('Doubao API 返回空内容');
 
     // 尝试提取 ```json ... ``` 中的内容
@@ -270,7 +275,7 @@ export async function convertPDFToMarkdownWithDoubaoOCR(
   renderedPages?: RenderedPdfPages,
   acquireVision?: ModelPermit,
 ): Promise<string> {
-  const { client, model } = getDoubaoClient();
+  const { client, model } = getDoubaoClient('vision');
   const tempDir = renderedPages?.directory || path.join(process.cwd(), 'uploads', 'temp_ocr');
   const ownsRenderedPages = !renderedPages;
 
@@ -351,6 +356,7 @@ export async function convertPDFToMarkdownWithDoubaoOCR(
         let response: any;
         try {
           response = await client.chat.completions.create({
+            ...ARK_EXTRACTION_OPTIONS,
             model: model,
             temperature: 0.1,
             messages: [
@@ -366,7 +372,7 @@ export async function convertPDFToMarkdownWithDoubaoOCR(
         const usageBatch = response.usage;
         console.log(`[Doubao][OCR] <<< 批次 ${batchIndex + 1} 完成 耗时=${elapsedBatch}ms prompt_tokens=${usageBatch?.prompt_tokens} completion_tokens=${usageBatch?.completion_tokens}`);
 
-        let content = response.choices[0]?.message?.content || '';
+        let content = requireArkContent(response);
         content = content.replace(/^```markdown\n?|```\n?$/g, '').trim();
 
         if (content) {
@@ -516,6 +522,7 @@ export async function convertToMarkdownWithDoubao(
         let completion: any;
         try {
           completion = await client.chat.completions.create({
+            ...ARK_EXTRACTION_OPTIONS,
             model,
             temperature: 0.1,
             max_tokens: 8192,
@@ -533,7 +540,7 @@ export async function convertToMarkdownWithDoubao(
 
         const elapsed = Date.now() - t0;
         const usage = completion.usage;
-        const content = (completion.choices[0].message.content || '').trim();
+        const content = requireArkContent(completion).trim();
         console.log(`[Doubao][convertMD] <<< 分片 ${idx + 1} 完成 耗时=${elapsed}ms prompt_tokens=${usage?.prompt_tokens} completion_tokens=${usage?.completion_tokens} outputLen=${content.length}`);
 
         if (!content) throw new Error('API 返回空内容');
@@ -602,6 +609,7 @@ export async function extractTOCFromMarkdown(
   try {
     console.log(`[Doubao][TOC] >>> 开始从 Markdown 提取目录, 采样长度: ${sample.length}`);
     const completion = await client.chat.completions.create({
+      ...ARK_EXTRACTION_OPTIONS,
       model: model,
       temperature: 0.1,
       messages: [
@@ -610,7 +618,7 @@ export async function extractTOCFromMarkdown(
       ]
     } as any);
 
-    let content = completion.choices[0]?.message?.content || '[]';
+    let content = requireArkContent(completion);
     // 清理 Markdown 代码块包裹
     content = content.replace(/^```json\n?|```\n?$/g, '').trim();
     

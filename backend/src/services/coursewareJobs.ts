@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 import db from './databaseService.js';
 import { normalizeSubject } from '../utils/subject.js';
 import { JobExecutionError, JobRecord } from './jobs.js';
@@ -68,6 +69,7 @@ async function callModel(prompt: string): Promise<any[]> {
   try {
     const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3' });
     const completion = await client.chat.completions.create({
+      ...ARK_GENERATION_OPTIONS,
       model,
       temperature: 0.4,
       messages: [
@@ -75,7 +77,7 @@ async function callModel(prompt: string): Promise<any[]> {
         { role: 'user', content: prompt },
       ],
     } as any);
-    return parseSlides(completion.choices[0]?.message?.content || '[]');
+    return parseSlides(requireArkContent(completion));
   } finally {
     release();
   }

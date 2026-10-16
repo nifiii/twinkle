@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 import Database from 'better-sqlite3';
 import db from './databaseService.js';
 import { LearningOwnerContextError, parseLearningOwnerId } from './learningDomain.js';
@@ -300,6 +301,7 @@ export async function generateOriginalEnglishListening(input: { chapterTitles: s
 
   const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3', timeout: 120_000, maxRetries: 0 });
   const response = await client.chat.completions.create({
+    ...ARK_GENERATION_OPTIONS,
     model,
     temperature: 0.3,
     messages: [
@@ -313,7 +315,7 @@ export async function generateOriginalEnglishListening(input: { chapterTitles: s
       },
     ],
   });
-  return parseGeneratedListening(response.choices[0]?.message?.content || '', input.gradeProfile);
+  return parseGeneratedListening(requireArkContent(response), input.gradeProfile);
 }
 
 export async function createLearningPackage(

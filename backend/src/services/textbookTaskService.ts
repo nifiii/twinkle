@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import Database from 'better-sqlite3';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 import db from './databaseService.js';
 import { createLearningPackage, LearningPackageKind, LearningPackageValidationError } from './learningPackageService.js';
 import { createAssessmentBlueprint, createAssessmentPaper } from './assessmentPaperService.js';
@@ -171,8 +172,8 @@ async function defaultGenerate(input: { action: TextbookAction; subject: string;
   const prompt = isCourseware
     ? `基于教材章节生成小学生可独立完成的原创自学课件和同章节随堂测验。学科：${input.subject}；章节：${input.chapterTitles.join('、')}。仅输出 JSON 对象：{"courseware":{"schemaVersion":1,"audience":"student","objectives":["..."],"steps":[{"id":"step-1","kind":"objective|explanation|example|self_check|misconception|summary","knowledgePoint":"...","title":"...","content":"...","example":{"prompt":"...","walkthrough":["..."],"answer":"..."},"selfCheck":{"id":"check-1","prompt":"...","options":["..."],"answer":"...","explanation":"..."}}],"summary":["..."],"studyTip":"..."},"questions":[{"type":"choice|fill|essay","question":"...","answer":"...","explanation":"...","options":["..."]}]}。choice 题必须有 2 至 4 个可显示的 options；不得使用 single_choice、multiple_choice 等其他题型名称。步骤必须 6 至 10 个，至少有讲解、示例、自检、易错提醒和小结；禁止教师话术、教案、板书、家长指导；不复述教材全文。章节摘录：${input.excerpt.slice(0, 6000)}`
     : `基于教材章节学习目标生成原创${input.action === 'math_thinking' ? '数学思维训练' : '随堂测验'}。学科：${input.subject}；章节：${input.chapterTitles.join('、')}。仅输出 JSON 数组，每项含 type、question、answer、explanation、可选 options；type 只能是 choice、fill、essay；choice 题必须有 2 至 4 个可显示的 options；不复述教材全文。章节摘录：${input.excerpt.slice(0, 6000)}`;
-  const response = await client.chat.completions.create({ model, temperature: 0.4, messages: [{ role: 'system', content: '只输出合法 JSON，不输出 Markdown。' }, { role: 'user', content: prompt }] } as any);
-  const raw = (response.choices[0]?.message?.content || '[]').replace(/^```json\n?|\n?```$/g, '').trim();
+  const response = await client.chat.completions.create({ ...ARK_GENERATION_OPTIONS, model, temperature: 0.4, messages: [{ role: 'system', content: '只输出合法 JSON，不输出 Markdown。' }, { role: 'user', content: prompt }] } as any);
+  const raw = requireArkContent(response).replace(/^```json\n?|\n?```$/g, '').trim();
   const parsed = JSON.parse(raw);
   if (isCourseware) {
     if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { questions?: unknown }).questions)) throw new Error('模型未返回课件与随堂测验');

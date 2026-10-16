@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from '../services/arkModelPolicy.js';
 import db from '../services/databaseService.js';
 import { normalizeSubject } from '../utils/subject.js';
 
@@ -100,6 +101,7 @@ async function generateCoursewareSlides(
 只返回 JSON 数组，不要其他文字。`;
 
   const completion = await client.chat.completions.create({
+    ...ARK_GENERATION_OPTIONS,
     model,
     temperature: 0.6,
     messages: [
@@ -107,7 +109,7 @@ async function generateCoursewareSlides(
       { role: 'user', content: cwUser },
     ],
   } as any);
-  const raw = (completion.choices[0]?.message?.content || '[]')
+  const raw = requireArkContent(completion)
     .replace(/^```json\n?|\n?```$/g, '').trim();
   let slides: any[] = JSON.parse(raw);
   if (!Array.isArray(slides) || slides.length === 0) throw new Error('讲解返回格式异常');
@@ -147,6 +149,7 @@ async function generateQuizQuestions(
 只返回 JSON 数组，不要其他文字。`;
 
   const completion = await client.chat.completions.create({
+    ...ARK_GENERATION_OPTIONS,
     model,
     temperature: 0.7,
     messages: [
@@ -154,7 +157,7 @@ async function generateQuizQuestions(
       { role: 'user', content: quizUser },
     ],
   } as any);
-  const raw = (completion.choices[0]?.message?.content || '[]')
+  const raw = requireArkContent(completion)
     .replace(/^```json\n?|\n?```$/g, '').trim();
   let questions: any[] = JSON.parse(raw);
   if (!Array.isArray(questions) || questions.length === 0) throw new Error('测验返回格式异常');

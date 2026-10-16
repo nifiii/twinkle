@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 import Database from 'better-sqlite3';
 import db from './databaseService.js';
 import { LearningOwnerContextError, parseLearningOwnerId } from './learningDomain.js';
@@ -140,6 +141,7 @@ async function generateOriginalPaper(input: Record<string, unknown>): Promise<un
   const client = new OpenAI({ apiKey, baseURL: 'https://ark.cn-beijing.volces.com/api/v3', timeout: 120_000, maxRetries: 0 });
   const prompt = originalPaperPrompt(input);
   const request = (retry: boolean) => client.chat.completions.create({
+    ...ARK_GENERATION_OPTIONS,
     model,
     temperature: 0.25,
     response_format: { type: 'json_object' },
@@ -148,7 +150,7 @@ async function generateOriginalPaper(input: Record<string, unknown>): Promise<un
       { role: 'user', content: retry ? `${prompt}\n前一份输出无法解析为 JSON。请从头生成完整、合法的 JSON 对象，不要解释。` : prompt },
     ],
   } as any);
-  const parse = (response: Awaited<ReturnType<typeof request>>) => JSON.parse((response.choices[0]?.message?.content || '{}').replace(/^```json\s*|\s*```$/g, '').trim());
+  const parse = (response: Awaited<ReturnType<typeof request>>) => JSON.parse(requireArkContent(response).replace(/^```json\s*|\s*```$/g, '').trim());
   try {
     return parse(await request(false));
   } catch (error) {

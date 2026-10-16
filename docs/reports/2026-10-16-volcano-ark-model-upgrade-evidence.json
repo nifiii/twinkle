@@ -1,0 +1,216 @@
+{
+  "date": "2026-10-16",
+  "baseline": "e1e21554a9789079a45bb153c4f018037abf4472",
+  "compatibility": {
+    "timestamp": "2026-10-16T07:40:41.377Z",
+    "syntheticDataOnly": true,
+    "checks": [
+      {
+        "name": "text-json:doubao-seed-2-1-pro-260915",
+        "status": "passed",
+        "elapsedMs": 1644,
+        "model": "doubao-seed-2-1-pro-260915",
+        "finishReason": "stop",
+        "usage": {
+          "completion_tokens": 34,
+          "prompt_tokens": 212,
+          "total_tokens": 246,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 14
+          }
+        }
+      },
+      {
+        "name": "text-json:doubao-seed-2-1-lite-260915",
+        "status": "passed",
+        "elapsedMs": 5036,
+        "model": "doubao-seed-2-1-lite-260915",
+        "finishReason": "stop",
+        "usage": {
+          "completion_tokens": 215,
+          "prompt_tokens": 212,
+          "total_tokens": 427,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 195
+          }
+        }
+      },
+      {
+        "name": "vision-chat:pro",
+        "status": "passed",
+        "elapsedMs": 2129,
+        "model": "doubao-seed-2-1-pro-260915",
+        "finishReason": "stop",
+        "usage": {
+          "completion_tokens": 7,
+          "prompt_tokens": 1358,
+          "total_tokens": 1365,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      {
+        "name": "vision-responses:doubao-seed-2-1-pro-260915",
+        "status": "passed",
+        "elapsedMs": 1291,
+        "model": "doubao-seed-2-1-pro-260915",
+        "responseStatus": "completed",
+        "usage": {
+          "input_tokens": 1358,
+          "output_tokens": 7,
+          "total_tokens": 1365,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      {
+        "name": "vision-responses:doubao-seed-2-1-lite-260915",
+        "status": "passed",
+        "elapsedMs": 1682,
+        "model": "doubao-seed-2-1-lite-260915",
+        "responseStatus": "completed",
+        "usage": {
+          "input_tokens": 1358,
+          "output_tokens": 7,
+          "total_tokens": 1365,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      {
+        "name": "long-paper-json:pro",
+        "status": "failed",
+        "elapsedMs": 120017,
+        "httpStatus": null,
+        "code": "Error"
+      }
+    ]
+  },
+  "business": {
+    "timestamp": "2026-10-16T07:44:58.701Z",
+    "syntheticDataOnly": true,
+    "checks": [
+      {
+        "name": "student-courseware-and-linked-quiz",
+        "status": "passed",
+        "steps": 10,
+        "audience": "student",
+        "linkedEntities": 2,
+        "elapsedMs": 61802,
+        "calls": [
+          {
+            "model": "doubao-seed-2-1-pro-260915",
+            "elapsedMs": 61799,
+            "finishReason": "stop",
+            "usage": {
+              "completion_tokens": 2980,
+              "prompt_tokens": 375,
+              "total_tokens": 3355,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 249
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "challenge-paper-real-ten-question-blueprint",
+        "status": "passed",
+        "sections": 3,
+        "questions": 10,
+        "contentCharacters": 3757,
+        "elapsedMs": 138180,
+        "calls": [
+          {
+            "model": "doubao-seed-2-1-pro-260915",
+            "elapsedMs": 81057,
+            "finishReason": "stop",
+            "usage": {
+              "completion_tokens": 2399,
+              "prompt_tokens": 730,
+              "total_tokens": 3129,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 545
+              }
+            }
+          },
+          {
+            "model": "doubao-seed-2-1-pro-260915",
+            "elapsedMs": 57120,
+            "finishReason": "stop",
+            "usage": {
+              "completion_tokens": 2104,
+              "prompt_tokens": 752,
+              "total_tokens": 2856,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 422
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "fourth-grade-five-question-listening",
+        "status": "passed",
+        "questions": 5,
+        "scriptWords": 96,
+        "elapsedMs": 34685,
+        "calls": [
+          {
+            "model": "doubao-seed-2-1-pro-260915",
+            "elapsedMs": 34683,
+            "finishReason": "stop",
+            "usage": {
+              "completion_tokens": 1537,
+              "prompt_tokens": 280,
+              "total_tokens": 1817,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 827
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "earlierObservations": [
+    {
+      "check": "text-json:doubao-seed-2-1-lite-260915",
+      "status": "failed",
+      "httpStatus": 404,
+      "code": "ModelNotOpen",
+      "subsequentIndependentCalls": "passed",
+      "rootCause": "unconfirmed"
+    }
+  ]
+}

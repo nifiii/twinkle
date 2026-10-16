@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from '../services/arkModelPolicy.js';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../services/databaseService.js';
 import { normalizeSubject } from '../utils/subject.js';
@@ -181,6 +182,7 @@ ${wrongCtx}${cwCtx}
 
 
     const completion = await client.chat.completions.create({
+      ...ARK_GENERATION_OPTIONS,
       model,
       temperature: 0.7,
       messages: [
@@ -189,7 +191,7 @@ ${wrongCtx}${cwCtx}
       ]
     } as any);
 
-    const rawContent = completion.choices[0]?.message?.content || '[]';
+    const rawContent = requireArkContent(completion);
     const cleanJson = rawContent.replace(/^```json\n?|\n?```$/g, '').trim();
 
     let questions: Question[];

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import OpenAI from 'openai';
+import { ARK_GENERATION_OPTIONS, requireArkContent } from './arkModelPolicy.js';
 import db from './databaseService.js';
 import { LearningTaskValidationError, WrongProblemRef, createLearningTask, updateLearningTaskGenerationStatus } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
@@ -201,6 +202,7 @@ async function generateWithModel(input: { subject: string; knowledgePoints: stri
     `知识点：${problem.knowledgePoints.join('、') || '未标注'}`,
   ].join('\n')).join('\n\n');
   const completion = await client.chat.completions.create({
+    ...ARK_GENERATION_OPTIONS,
     model,
     temperature: 0.45,
     messages: [
@@ -208,7 +210,7 @@ async function generateWithModel(input: { subject: string; knowledgePoints: stri
       { role: 'user', content: `学科：${input.subject}\n知识点范围：${input.knowledgePoints.join('、') || '综合'}\n\n${source}\n\n请生成 JSON：{"slides":[{"title":"...","content":"...","notes":"..."}],"questions":[{"type":"choice|fill|essay","question":"原创题目","options":["A..."],"answer":"...","explanation":"..."}]}。slides 需要聚合讲解每道选题的错误原因和正确思路；questions 只覆盖给定知识点，必须为原创题。` },
     ],
   } as any);
-  const raw = (completion.choices[0]?.message?.content || '{}').replace(/^```json\n?|\n?```$/g, '').trim();
+  const raw = requireArkContent(completion).replace(/^```json\n?|\n?```$/g, '').trim();
   const result = JSON.parse(raw) as WrongReviewGeneration;
   if (!Array.isArray(result.slides) || !result.slides.length || !Array.isArray(result.questions) || !result.questions.length) {
     throw new Error('模型未返回完整的聚合讲解和测验');

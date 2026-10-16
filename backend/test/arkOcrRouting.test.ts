@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { JobScheduler, JobExecutionError, type JobHandler, type JobRecord } from '../src/services/jobs.js';
+
+test('OCR worker uses explicit vision or pinned Lite and rejects incomplete Responses before saving', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'twinkle-ark-ocr-'));
+  process.env.DATA_DIR = directory;
+  process.env.ARK_API_KEY = 'synthetic-test-key';
+  process.env.ARK_MODEL_ID = 'ep-text-must-not-be-used';
+  process.env.ARK_VISION_MODEL_ID = 'ep-test-vision';
+  let handler: JobHandler | undefined;
+  t.mock.method(JobScheduler.prototype, 'register', (type: string, action: JobHandler) => { if (type === 'ocr') handler = action; });
+  await import('../src/routes/analyze.js');
+  const { default: database } = await import('../src/services/databaseService.js');
+  t.after(async () => { database.close(); await fs.rm(directory, { recursive: true, force: true }); });
+  assert.ok(handler);
+  const requests: any[] = [];
+  let responseStatus = 'completed';
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options: any) => {
+    requests.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ status: responseStatus, output_text: JSON.stringify({ type: 'exam_paper', subject: '数学', chapter_hint: 'Synthetic', content_markdown: '1.', problems: [] }) }), { status: 200 });
+  });
+  const jobDirectory = path.join(directory, 'jobs/ocr');
+  await fs.mkdir(jobDirectory, { recursive: true });
+  const payloadRef = path.join(jobDirectory, 'synthetic.input.json');
+  const bytes = await fs.readFile(new URL('./fixtures/ark-arithmetic.png', import.meta.url));
+  await fs.writeFile(payloadRef, JSON.stringify({ base64Image: `data:image/png;base64,${bytes.toString('base64')}` }));
+  const run = (id: string) => handler!({ id, payloadRef } as JobRecord);
+  const explicit = await run('explicit-vision');
+  assert.equal(JSON.parse(await fs.readFile(explicit, 'utf8')).meta.subject, '数学');
+  delete process.env.ARK_VISION_MODEL_ID;
+  await run('default-lite');
+  assert.deepEqual(requests.map(request => request.model), ['ep-test-vision', 'doubao-seed-2-1-lite-260915']);
+  assert.ok(requests.every(request => request.reasoning.effort === 'minimal'));
+  responseStatus = 'incomplete';
+  await assert.rejects(run('incomplete'), (error: unknown) => error instanceof JobExecutionError && error.errorCode === 'OCR_502');
+  await assert.rejects(fs.access(path.join(jobDirectory, 'incomplete.result.json')));
+  assert.equal(requests.length, 3, 'an incomplete response must not trigger an uncontrolled retry');
+});

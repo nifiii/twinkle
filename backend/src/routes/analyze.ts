@@ -6,6 +6,7 @@ import db from '../services/databaseService.js';
 import { normalizeSubject } from '../utils/subject.js';
 import { JobExecutionError, JobRecord } from '../services/jobs.js';
 import { jobStore, modelSlots, registerJobHandler } from '../services/jobRuntime.js';
+import { ARK_OCR_LITE_MODEL } from '../services/arkModelPolicy.js';
 
 // OCR 调试目录:parse 失败时落盘完整 raw,自动保留 7 天。
 const OCR_DEBUG_DIR = path.join(process.env.DATA_DIR || '/opt/twinkle/data', 'ocr-debug');
@@ -121,6 +122,7 @@ async function arkOcrAttempt(
       signal: AbortSignal.timeout(600000),
       body: JSON.stringify({
         model,
+        reasoning: { effort: 'minimal' },
         input: [
           { role: 'system', content: [{ type: 'input_text', text: COMPACT_OCR_SYSTEM_INSTRUCTION }] },
           {
@@ -154,6 +156,7 @@ async function arkOcrAttempt(
   }
 
   const data: any = await arkResp.json();
+  if (data.status !== 'completed') throw new OcrError(502, '模型未完整识别内容，请重试。');
   const usage = data?.usage;
   console.log(`[Doubao][analyze-image][${attemptLabel}] <<< 完成 耗时=${elapsed}ms input_tokens=${usage?.input_tokens} output_tokens=${usage?.output_tokens}`);
 
@@ -186,7 +189,7 @@ async function callDoubaoOcr(base64Image: string, taskId: string = 'no-task'): P
   const apiKey = process.env.ARK_API_KEY;
   if (!apiKey) throw new OcrError(500, '服务器配置错误: ARK_API_KEY 未设置');
 
-  const model = process.env.ARK_VISION_MODEL_ID || 'doubao-seed-2-0-lite-260428';
+  const model = process.env.ARK_VISION_MODEL_ID || ARK_OCR_LITE_MODEL;
 
   const mimeMatch = base64Image.match(/^data:image\/(png|jpeg|jpg|webp);base64,/i);
   const mime = mimeMatch ? mimeMatch[1].toLowerCase().replace('jpg', 'jpeg') : 'jpeg';
