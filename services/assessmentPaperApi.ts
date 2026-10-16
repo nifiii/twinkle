@@ -32,6 +32,9 @@ export interface AssessmentQuestion {
   type: 'choice' | 'fill' | 'essay';
   stem: string;
   options?: string[];
+  material?: string;
+  groupId?: string;
+  questionKind?: string;
   answer: string;
   explanation: string;
   score: number;
@@ -46,6 +49,7 @@ export interface AssessmentPaper {
   totalScore: number;
   status: string;
   content: {
+    schemaVersion?: number;
     title: string;
     original: true;
     totalScore: number;
@@ -83,6 +87,9 @@ export interface AnswerReviewItem {
   referenceAnswer: string;
   explanation: string;
   needsReinforcement: boolean;
+  options?: string[];
+  material?: string;
+  questionKind?: string;
 }
 
 export interface PaperAttemptReview {

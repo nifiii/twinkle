@@ -8,6 +8,7 @@ import { createOlympiadAssessmentTask, createTextbookTask, getChapterActions, ge
 import { isRetiredLearningContent } from '../services/retiredLearningContentService.js';
 import { getUnifiedWrongBook, WrongBookUnavailableError, WrongBookValidationError } from '../services/unifiedWrongBookService.js';
 import { GeneratedMaterialError, listGeneratedLearningMaterials, retireGeneratedLearningMaterial } from '../services/generatedLearningMaterialService.js';
+import { SourcePaperError, createSourcePaperTask, getSourcePaperAnalysis, listSourcePapers, requestSourcePaperAnalysis } from '../services/sourcePaperPracticeService.js';
 
 const router = Router();
 const enabled = (res: Response) => {
@@ -16,6 +17,7 @@ const enabled = (res: Response) => {
   return false;
 };
 const fail = (error: unknown, res: Response) => {
+  if (error instanceof SourcePaperError) return res.status(error.status).json({ success: false, errorCode: error.code, error: error.message });
   if (error instanceof LearningOwnerContextError) return res.status(400).json({ success: false, errorCode: 'invalid_context', error: '需要当前学生档案' });
   if (error instanceof LearningTaskValidationError) return res.status(400).json({ success: false, errorCode: 'invalid_source', field: error.field, error: error.message });
   if (error instanceof TextbookTaskUnavailableError) return res.status(400).json({ success: false, errorCode: error.code, error: error.message });
@@ -88,17 +90,37 @@ router.get('/assistant/olympiad-materials', (req: Request, res: Response) => {
   if (!enabled(res)) return;
   try { return res.json({ success: true, data: getOlympiadMaterials(req.query.ownerId, db) }); } catch (error) { return fail(error, res); }
 });
+router.get('/assistant/source-papers', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: listSourcePapers(req.query.ownerId) }); } catch (error) { return fail(error, res); }
+});
+router.post('/assistant/source-paper-analyses', async (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  if (!readLearningFeatureFlags().assessments) return res.status(503).json({ success: false, errorCode: 'feature_disabled', error: '原创试卷功能尚未启用' });
+  try { return res.status(202).json({ success: true, data: await requestSourcePaperAnalysis(req.body || {}) }); } catch (error) { return fail(error, res); }
+});
+router.get('/assistant/source-paper-analyses', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: getSourcePaperAnalysis(req.query.ownerId, { requestKey: req.query.requestKey }) }); } catch (error) { return fail(error, res); }
+});
+router.get('/assistant/source-paper-analyses/:id', (req: Request, res: Response) => {
+  if (!enabled(res)) return;
+  try { return res.json({ success: true, data: getSourcePaperAnalysis(req.query.ownerId, { id: req.params.id }) }); } catch (error) { return fail(error, res); }
+});
 router.post('/learning-tasks', async (req: Request, res: Response) => {
   if (!enabled(res)) return;
+  if (req.body?.source?.kind === 'source_paper' && !readLearningFeatureFlags().assessments) return res.status(503).json({ success: false, errorCode: 'feature_disabled', error: '原创试卷功能尚未启用' });
   try {
-    const task = req.body?.taskType === 'wrong_review'
+    const task = req.body?.source?.kind === 'source_paper'
+      ? await createSourcePaperTask(req.body || {})
+      : req.body?.taskType === 'wrong_review'
       ? await createWrongReviewTask(req.body || {})
       : req.body?.source?.kind === 'olympiad'
         ? await createOlympiadAssessmentTask(req.body || {})
       : await createTextbookTask(req.body || {});
     const detail = getClassroomTask(db, task.id, req.body?.ownerId);
     if (!detail) throw new Error('学习任务创建后无法读取');
-    return res.status(task.generationStatus === 'ready' ? 201 : 200).json({ success: true, data: taskSummary(detail) });
+    return res.status(req.body?.source?.kind === 'source_paper' ? 202 : task.generationStatus === 'ready' ? 201 : 200).json({ success: true, data: taskSummary(detail) });
   } catch (error) { return fail(error, res); }
 });
 router.get('/learning-tasks/:id', (req: Request, res: Response) => {

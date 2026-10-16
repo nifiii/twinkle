@@ -51,7 +51,7 @@ export interface ClassroomTaskSummary {
 
 export interface ClassroomTaskDetail extends ClassroomTaskSummary {
   sourceSnapshot: {
-    sourceType: 'chapter' | 'olympiad' | 'wrong_problems' | 'legacy';
+    sourceType: 'chapter' | 'olympiad' | 'wrong_problems' | 'source_paper' | 'legacy';
     bookId?: string;
     chapterIds?: string[];
     wrongProblemRefs?: WrongProblemRef[];
@@ -119,6 +119,7 @@ function selectPrimaryLink(links: TaskLink[]): TaskLink | null {
 }
 
 function retryState(task: LearningTaskRecord): Pick<ClassroomTaskSummary, 'retryable' | 'blockedReason'> {
+  if (task.sourceType === 'source_paper') return { retryable: false, ...(task.generationStatus === 'failed' ? { blockedReason: '请从学习小助手 → 模拟考试查看母卷分析并重新生成' } : {}) };
   if (task.generationStatus === 'resource_unavailable') return { retryable: false, ...(task.errorMessage ? { blockedReason: task.errorMessage } : {}) };
   if (task.generationStatus !== 'failed') return { retryable: false };
   const message = task.errorMessage || '';
@@ -472,8 +473,8 @@ export function getClassroomTask(database: Database.Database, taskId: string, ow
     ...summary,
     sourceSnapshot: task.sourceType === 'chapter'
       ? { sourceType: 'chapter', bookId: task.bookId || undefined, chapterIds: task.chapterIds }
-      : task.sourceType === 'olympiad'
-        ? { sourceType: 'olympiad', bookId: task.bookId || undefined }
+      : task.sourceType === 'olympiad' || task.sourceType === 'source_paper'
+        ? { sourceType: task.sourceType, bookId: task.bookId || undefined }
         : { sourceType: 'wrong_problems', wrongProblemRefs: task.wrongProblemRefs },
     links,
     events,

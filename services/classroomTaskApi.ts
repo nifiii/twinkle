@@ -24,11 +24,12 @@ export interface ClassroomTaskSummary {
 }
 
 export interface ClassroomTaskDetail extends ClassroomTaskSummary {
+  events?: Array<{ eventType: string; detail: Record<string, unknown>; createdAt: number }>;
   errorCode: string | null;
   errorMessage: string | null;
   links: ClassroomTaskLink[];
   videoResource: { id: string; title: string; durationSeconds: number; ageLabel: string; embedUrl: string } | null;
-  sourceSnapshot?: { sourceType: 'chapter' | 'olympiad' | 'wrong_problems' | 'legacy'; bookId?: string; chapterIds?: string[] };
+  sourceSnapshot?: { sourceType: 'chapter' | 'olympiad' | 'wrong_problems' | 'source_paper' | 'legacy'; bookId?: string; chapterIds?: string[] };
 }
 
 export class ClassroomTaskApiError extends Error {

@@ -20,6 +20,9 @@ COPY components ./components
 COPY services ./services
 COPY hooks ./hooks
 COPY utils ./utils
+# One pure classification rule is shared by both entry points. Copy it into
+# this stage as well so Docker builds enforce the same boundary as local Vite.
+COPY backend/src/utils/materialClassification.ts ./backend/src/utils/materialClassification.ts
 COPY src ./src
 COPY scripts ./scripts
 COPY types.ts App.tsx index.tsx index.html ./

@@ -53,6 +53,13 @@ export function readLearningFeatureFlags(env: NodeJS.ProcessEnv = process.env): 
  */
 export function initLearningDomainDatabase(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS source_paper_analyses (
+      id TEXT PRIMARY KEY, ownerId TEXT NOT NULL, requestKey TEXT NOT NULL,
+      bookId TEXT NOT NULL, sourceHash TEXT NOT NULL, sourceJson TEXT NOT NULL,
+      targetGrade TEXT NOT NULL, status TEXT NOT NULL, summaryJson TEXT, error TEXT,
+      taskId TEXT, configJson TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+      UNIQUE(ownerId, requestKey)
+    );
     CREATE TABLE IF NOT EXISTS learning_packages (
       id TEXT PRIMARY KEY,
       ownerId TEXT NOT NULL,
@@ -273,6 +280,11 @@ export function initLearningDomainDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_export_jobs_paper_variant
       ON export_jobs(paperId, variant, createdAt DESC);
   `);
+
+  // Jobs run in this process, so a restart cannot safely resume an in-flight
+  // provider request. Preserve the request identity and expose an explicit failure.
+  db.prepare("UPDATE source_paper_analyses SET status='failed',error='服务已重启，请重新分析母卷',updatedAt=? WHERE status='running'").run(Date.now());
+  db.prepare("UPDATE learning_tasks SET generationStatus='failed',errorCode='generation_interrupted',errorMessage='服务已重启，请从模拟考试重新生成',updatedAt=? WHERE sourceType='source_paper' AND generationStatus IN ('queued','running')").run(Date.now());
 
   // Why: deployed databases already have this table. The column is additive so
   // old playback records remain readable while the first-completion gate moves

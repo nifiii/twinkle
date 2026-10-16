@@ -11,6 +11,9 @@ export type AnswerReviewItem = {
   referenceAnswer: string;
   explanation: string;
   needsReinforcement: boolean;
+  options?: string[];
+  material?: string;
+  questionKind?: string;
 };
 
 type StoredQuestion = {
@@ -23,6 +26,9 @@ type StoredQuestion = {
   correctAnswer?: unknown;
   referenceAnswer?: unknown;
   explanation?: unknown;
+  options?: unknown;
+  material?: unknown;
+  questionKind?: unknown;
 };
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -44,6 +50,9 @@ export function createReviewItems(questions: StoredQuestion[], answers: Record<s
       referenceAnswer: text(question.referenceAnswer) || text(question.correctAnswer) || text(question.answer),
       explanation: text(question.explanation),
       needsReinforcement: false,
+      ...(Array.isArray(question.options) ? { options: question.options.filter((item): item is string => typeof item === 'string') } : {}),
+      ...(text(question.material) ? { material: text(question.material) } : {}),
+      ...(text(question.questionKind) ? { questionKind: text(question.questionKind) } : {}),
     };
   });
 }

@@ -9,6 +9,7 @@ import { createAssessmentBlueprint, createAssessmentPaper } from './assessmentPa
 import { LearningTaskValidationError, LearningTaskType, createLearningTask, completeLearningTask, getLearningTask, retryLearningTask, updateLearningTaskGenerationStatus } from './learningTaskService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 import { normalizeSubject } from '../utils/subject.js';
+import { isSourcePaperMaterial } from '../utils/materialClassification.js';
 
 type TextbookAction = 'courseware' | 'classroom_quiz' | 'english_listening' | 'math_thinking' | 'assessment';
 type ChapterNode = { id: string | number; title: string; children?: ChapterNode[] };
@@ -79,6 +80,7 @@ function bookFor(database: Database.Database, ownerId: string, bookId: unknown):
   const id = text(bookId, 'source.bookId', '教材');
   const book = database.prepare(`SELECT id, title, subject, grade, ownerId, status, mdPath, tableOfContents, category, tags FROM books WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')`).get(id, ownerId) as Book | undefined;
   if (!book) throw new LearningTaskValidationError('source.bookId', '教材不在当前家庭资料范围内');
+  if (isSourcePaperMaterial(book)) throw new TextbookTaskUnavailableError('capability_unavailable', '试卷资料请从模拟考试的母卷出题模式使用，无需选择章节');
   if (isOlympiadMaterial(book)) throw new TextbookTaskUnavailableError('capability_unavailable', '奥数或数学竞赛资料请从奥数模拟考试入口使用');
   if (book.status !== 'completed' || !book.mdPath) throw new TextbookTaskUnavailableError('capability_unavailable', '教材尚未完成解析');
   return book;

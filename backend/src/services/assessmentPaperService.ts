@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import db from './databaseService.js';
 import { LearningOwnerContextError, parseLearningOwnerId } from './learningDomain.js';
 import { normalizeSubject } from '../utils/subject.js';
+import { isSourcePaperMaterial } from '../utils/materialClassification.js';
 
 type Difficulty = 'basic' | 'standard' | 'challenge';
 type ExamType = 'unit' | 'midterm' | 'final';
@@ -53,8 +54,9 @@ function flatten(nodes: Array<{ id: string; title: string; children?: unknown[] 
 
 function requireBook(database: Database.Database, bookId: unknown, ownerId: string) {
   const id = parseString(bookId, 'bookId');
-  const book = database.prepare(`SELECT id, subject, grade, tableOfContents, mdPath, status FROM books WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')`).get(id, ownerId) as { id: string; subject: string; grade: string | null; tableOfContents: string | null; mdPath: string | null; status: string } | undefined;
+  const book = database.prepare(`SELECT id, subject, grade, tableOfContents, mdPath, status, category, tags FROM books WHERE id = ? AND (ownerId = ? OR ownerId = 'shared')`).get(id, ownerId) as { id: string; subject: string; grade: string | null; tableOfContents: string | null; mdPath: string | null; status: string; category: string | null; tags: string | null } | undefined;
   if (!book) throw new AssessmentPaperValidationError('bookId', '教材不在当前本地资料上下文中');
+  if (isSourcePaperMaterial(book)) throw new AssessmentPaperValidationError('bookId', '试卷资料请从模拟考试的母卷出题模式使用');
   if (book.status !== 'completed' || !book.mdPath || !book.grade?.trim()) throw new AssessmentPaperValidationError('bookId', '教材尚未完成解析或缺少年级');
   return book;
 }

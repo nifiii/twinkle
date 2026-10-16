@@ -16,8 +16,8 @@ import { getAssessmentPaper } from './assessmentPaperService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 type ExportVariant = 'paper' | 'answer';
-type PaperQuestion = { id: string; type: 'choice' | 'fill' | 'essay'; stem: string; options?: string[]; answer: string; explanation?: string; score: number };
-type PaperContent = { title?: string; generationVersion?: number; blueprint?: { subject?: string; grade?: string; chapterTitles?: string[] }; sections?: Array<{ title?: string; questions?: PaperQuestion[] }> };
+type PaperQuestion = { id: string; type: 'choice' | 'fill' | 'essay'; stem: string; material?: string; options?: string[]; answer: string; explanation?: string; score: number };
+type PaperContent = { title?: string; schemaVersion?: number; generationVersion?: number; blueprint?: { subject?: string; grade?: string; chapterTitles?: string[] }; sections?: Array<{ title?: string; questions?: PaperQuestion[] }> };
 type ExportJob = { id: string; paperId: string; variant: ExportVariant; status: string; filePath: string | null; error: string | null; createdAt: number; updatedAt: number; downloadUrl: string | null };
 
 const A4_CONTENT_BOTTOM = 755;
@@ -110,26 +110,52 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
   await fs.access(FONT_PATH);
   return new Promise<Buffer>((resolve, reject) => {
     const document = new PDFDocument({ size: 'A4', margin: 54, bufferPages: true, info: { Title: `${paper.title || '原创试卷'}-${variant}` } });
+    if (paper.schemaVersion === 2) document.page.margins.bottom = 90;
     const chunks: Buffer[] = [];
     document.on('data', (chunk: Buffer) => chunks.push(chunk));
     document.on('error', reject);
     document.on('end', () => resolve(Buffer.concat(chunks)));
     document.registerFont('NotoSansCJK', FONT_PATH);
-    document.on('pageAdded', () => pageHeader(document, paper, variant, createdAt));
+    document.on('pageAdded', () => {
+      if (paper.schemaVersion === 2) document.page.margins.bottom = 90;
+      pageHeader(document, paper, variant, createdAt);
+    });
     pageHeader(document, paper, variant, createdAt);
     document.font('NotoSansCJK').fontSize(18).fillColor('#0f172a').text(paper.title || '原创试卷', { align: 'center' });
     document.moveDown(1.2);
     let number = 1;
+    const materialFirstQuestions = new Map<string, number>();
     for (const section of paper.sections || []) {
       ensureSpace(document, 38);
-      document.font('NotoSansCJK').fontSize(13).fillColor('#0f172a').text(section.title || '试题');
-      document.moveDown(0.5);
+      if (paper.schemaVersion !== 2) {
+        document.font('NotoSansCJK').fontSize(13).fillColor('#0f172a').text(section.title || '试题');
+        document.moveDown(0.5);
+      }
       for (const question of section.questions || []) {
+        const materialKey = paper.schemaVersion === 2 ? question.material?.trim() : undefined;
+        const materialFirst = materialKey ? materialFirstQuestions.get(materialKey) : undefined;
+        const printedMaterial = materialFirst ? `本题材料见第 ${materialFirst} 题前。` : question.material;
         // An essay's heading, formula and answer lines form one unit. Moving
         // before it starts prevents a question from being split from its own
         // answer area at the page boundary.
         ensureSpace(document, question.type === 'essay' && variant === 'paper' ? 280 : 58);
-        document.font('NotoSansCJK').fontSize(11).fillColor('#111827').text(`${number}. （${question.score} 分）`, { continued: true });
+        if (paper.schemaVersion === 2) {
+          document.font('NotoSansCJK').fontSize(11);
+          const blocks = [printedMaterial, question.stem, question.options?.join('    '), ...(variant === 'answer' ? [question.answer, question.explanation] : [])].filter(Boolean) as string[];
+          const height = blocks.reduce((sum, block) => sum + document.heightOfString(block, { width: 487, lineGap: 4 }), 0)
+            + (variant === 'paper' ? question.type === 'essay' ? 175 : question.type === 'fill' ? 35 : 0 : 0) + 65;
+          // Keep a normal question with its passage and answer area. Very long
+          // passages may flow over pages, with the larger bottom margin keeping
+          // all body text away from the footer.
+          ensureSpace(document, Math.min(height, 650));
+          if (question === section.questions?.[0]) {
+            document.font('NotoSansCJK').fontSize(13).fillColor('#0f172a').text(section.title || '试题');
+            document.moveDown(0.5);
+          }
+        }
+        if (printedMaterial) { writeStem(document, printedMaterial); document.moveDown(0.5); }
+        if (materialKey && !materialFirst) materialFirstQuestions.set(materialKey, number);
+        document.font('NotoSansCJK').fontSize(11).fillColor('#111827').text(paper.schemaVersion === 2 ? `${number}.` : `${number}. （${question.score} 分）`, { continued: true });
         document.text(' ');
         writeStem(document, question.stem);
         if (question.options?.length) {
@@ -150,6 +176,7 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
     const range = document.bufferedPageRange();
     for (let index = 0; index < range.count; index += 1) {
       document.switchToPage(index);
+      document.page.margins.bottom = 54;
       // Keep the footer above PDFKit's bottom margin. Writing below it causes
       // PDFKit to paginate while drawing footers and leaves blank trailing pages.
       document.font('NotoSansCJK').fontSize(8).fillColor('#64748b').text(`第 ${index + 1} / ${range.count} 页`, 54, 765, { width: 487, align: 'center' });
