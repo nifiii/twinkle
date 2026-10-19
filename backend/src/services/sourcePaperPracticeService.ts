@@ -133,23 +133,39 @@ function targetGrade(
         birthDate: string | null;
       }
     | undefined;
-  const year = (date: Date) =>
-    date.getMonth() >= 8 ? date.getFullYear() : date.getFullYear() - 1;
-  const parseDate = (value: string | null | undefined) =>
-    value && /^\d{4}-\d{2}/.test(value)
-      ? new Date(`${value.slice(0, 7)}-01T00:00:00+08:00`)
+  // The container's local timezone is not a business rule. Resolve all
+  // academic-year boundaries in China Standard Time so UTC production images
+  // do not move a September profile date back into the previous school year.
+  const chinaAcademicYear = (date: Date) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "numeric",
+    }).formatToParts(date);
+    const calendarYear = Number(parts.find((part) => part.type === "year")?.value);
+    const month = Number(parts.find((part) => part.type === "month")?.value);
+    return month >= 9 ? calendarYear : calendarYear - 1;
+  };
+  const parseDate = (value: string | null | undefined) => {
+    const match = value?.match(/^(\d{4})-(\d{2})/);
+    if (!match) return new Date(NaN);
+    const calendarYear = Number(match[1]);
+    const month = Number(match[2]);
+    return month >= 1 && month <= 12
+      ? new Date(Date.UTC(calendarYear, month - 1, 1))
       : new Date(NaN);
+  };
   const base = parseDate(user?.baseGradeSetAt);
   const birth = parseDate(user?.birthDate);
-  const currentYear = year(new Date(now));
+  const currentYear = chinaAcademicYear(new Date(now));
   const grade =
     user?.baseGrade &&
     user.baseGrade >= 1 &&
     user.baseGrade <= 12 &&
     Number.isFinite(base.getTime())
-      ? user.baseGrade + currentYear - year(base)
+      ? user.baseGrade + currentYear - chinaAcademicYear(base)
       : Number.isFinite(birth.getTime())
-        ? currentYear - year(birth) - 5
+        ? currentYear - chinaAcademicYear(birth) - 5
         : NaN;
   if (!Number.isInteger(grade) || grade < 1 || grade > 12)
     throw new SourcePaperError(
