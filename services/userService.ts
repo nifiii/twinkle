@@ -27,7 +27,7 @@ export async function createUser(payload: {
 
 export async function updateUser(
   id: string,
-  payload: Partial<{ name: string; avatar: string; birthDate: string; baseGrade: number }>
+  payload: Partial<{ name: string; avatar: string; birthDate: string | null; baseGrade: number | null }>
 ): Promise<UserProfile> {
   const resp = await fetch(`${API_BASE}/users/${id}`, {
     method: 'PATCH',

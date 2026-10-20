@@ -306,15 +306,15 @@ const App: React.FC = () => {
       const saved = await updateUser(updated.id, {
         name: updated.name,
         avatar: updated.avatar,
-        birthDate: updated.birthDate,
-        baseGrade: updated.baseGrade,
+        birthDate: updated.birthDate ?? null,
+        baseGrade: updated.baseGrade ?? null,
       });
       setProfiles(prev => prev.map(p => p.id === saved.id ? saved : p));
       if (currentUser.id === saved.id) setCurrentUser(saved);
       setSwitchToast('✅ 个人资料已保存');
     } catch (e: any) {
       console.error('保存个人资料失败:', e);
-      setErrorMsg(`保存失败: ${e.message || '未知错误'}`);
+      throw e;
     }
   };
 

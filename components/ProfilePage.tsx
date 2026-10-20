@@ -4,7 +4,7 @@ import { Save, User, ArrowLeft } from 'lucide-react';
 
 interface ProfilePageProps {
   user: UserProfile;
-  onSave: (updated: UserProfile) => void;
+  onSave: (updated: UserProfile) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -18,8 +18,8 @@ const GRADE_OPTIONS = [
 const schoolYearStart = (year: number, month: number): number => month >= 9 ? year : year - 1;
 
 const currentSchoolYear = (): number => {
-  const now = new Date();
-  return schoolYearStart(now.getFullYear(), now.getMonth() + 1);
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric' }).formatToParts(new Date());
+  return schoolYearStart(Number(parts.find(p => p.type === 'year')!.value), Number(parts.find(p => p.type === 'month')!.value));
 };
 
 const computeGradeFromBirth = (birthDate: string): number => {
@@ -36,27 +36,37 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onSave, onCancel }) => 
   const [name, setName] = useState(user.name || '');
   const [avatar, setAvatar] = useState(user.avatar || '👤');
   const [birthDate, setBirthDate] = useState(user.birthDate || '');
-  const [baseGrade, setBaseGrade] = useState<number | ''>(user.baseGrade || '');
+  const [baseGrade, setBaseGrade] = useState<number | ''>(user.gradeNum || user.baseGrade || 1);
   const [useAutoGrade, setUseAutoGrade] = useState(!user.baseGrade);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const previewGradeNum = useMemo(() => {
     if (!useAutoGrade && baseGrade) return baseGrade as number;
     if (birthDate) return computeGradeFromBirth(birthDate);
-    return user.gradeNum || 1;
+    return 1;
   }, [useAutoGrade, baseGrade, birthDate, user.gradeNum]);
 
   const previewGradeName = GRADE_OPTIONS[previewGradeNum - 1] || GRADE_OPTIONS[0];
 
-  const handleSave = () => {
-    if (!name.trim()) return;
-    onSave({
-      ...user,
-      name: name.trim(),
-      avatar,
-      birthDate: birthDate || undefined,
-      baseGrade: useAutoGrade ? undefined : (baseGrade || undefined),
-    } as UserProfile);
-    onCancel();
+  const handleSave = async () => {
+    if (saving || !name.trim() || (!useAutoGrade && !baseGrade)) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onSave({
+        ...user,
+        name: name.trim(),
+        avatar,
+        birthDate: birthDate || undefined,
+        baseGrade: useAutoGrade ? undefined : (baseGrade || undefined),
+      });
+      onCancel();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '保存失败，请重试');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -77,6 +87,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onSave, onCancel }) => 
           <button
             type="button"
             onClick={onCancel}
+            disabled={saving}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyber-surface/60 hover:bg-cyber-surface text-cyber-text border border-cyber-border/60 hover:border-neon-blue/50 hover:text-neon-blue text-sm font-medium transition-all flex-shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -86,7 +97,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onSave, onCancel }) => 
       </div>
 
       <div className="bg-white rounded-2xl shadow-card border border-gray-200 overflow-hidden">
-        <div className="px-6 py-6 space-y-6">
+        <fieldset disabled={saving} className="px-6 py-6 space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">头像</label>
             <div className="flex flex-wrap gap-2">
@@ -174,21 +185,24 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onSave, onCancel }) => 
               </div>
             </div>
           </div>
-        </div>
+        </fieldset>
+
+        {saveError && <p role="alert" className="px-6 pb-4 text-sm text-red-600">{saveError}</p>}
 
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex gap-3">
           <button
             onClick={onCancel}
+            disabled={saving}
             className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
           >
             取消
           </button>
           <button
             onClick={handleSave}
-            disabled={!name.trim()}
+            disabled={saving || !name.trim() || (!useAutoGrade && !baseGrade)}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors text-sm font-medium"
           >
-            <Save className="w-4 h-4" />保存
+            <Save className="w-4 h-4" />{saving ? '保存中…' : '保存'}
           </button>
         </div>
       </div>
