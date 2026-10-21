@@ -823,7 +823,8 @@ export async function createSourcePaperTask(
         for (let s = 0; s < summary.sections.length; s++) {
           const section = summary.sections[s];
           const questions: GeneratedQuestion[] = [];
-          if (summary.visualEvidence) Object.assign(section, { visualEvidence: summary.visualEvidence });
+          // Whole-paper vision evidence is for source validation. Passing all
+          // its sections here competes with this batch's single-section contract.
           // The JSON example is part of the model's output contract. A text-
           // only example contradicts mandatory visual/audio/array fields.
           const exampleQuestion = {

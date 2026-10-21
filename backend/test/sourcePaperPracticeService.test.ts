@@ -404,6 +404,10 @@ test("verified picture-to-text sections generate original drawings and preserve 
   assert.equal(analysis.status, 'ready');
   const illustration = { description: '两个圆形', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240"><circle cx="50" cy="50" r="20"/><circle cx="150" cy="50" r="20"/></svg>' };
   const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async prompt => {
+    assert.doesNotMatch(prompt, /"visualEvidence"|物体数量示意/);
+    const currentSection = JSON.parse(prompt.match(/当前分区(\{.+?\})，本批/)![1]);
+    assert.equal(currentSection.requiresVisual, true);
+    assert.equal(currentSection.questionKind, '看图填空');
     // Emulate a provider following the concrete JSON contract, not prose-only
     // instructions. The old text-only example would omit the required drawing.
     const example = JSON.parse(prompt.match(/(\{"questions":\[\{[^\n]+\}\]\})，不要分数。/)![1]).questions[0];
