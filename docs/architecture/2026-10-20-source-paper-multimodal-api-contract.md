@@ -30,6 +30,7 @@
 - `PaperAttempt.answers`: `Record<string, string | string[]>`。
 - 图片题追加 `AssessmentQuestion.illustration?: { description: string; svg: string }`，并原样保存到作答回顾快照。看图文字作答分区 `requiresVisual=true` 时每题必填；只允许不含脚本、外链、嵌入图片的静态 SVG 子集；缺图或非法图阻断整卷发布。
 - `requiresDrawing` 仅指学生需要画图或补画；看图填空、选择、写作不能归入绘图作答。
+- `requiresMaterial` 表示作答依赖材料。`requiresVisual=true` 的图文配对可以由已校验的原创 illustration 满足；题干明确引用短文/文章/对话/词库时仍必须提供对应文字 material，不允许用图片掩盖缺少的阅读原文。
 - 缺失材料响应使用 `400`，`field=sourcePaper`，错误信息必须说明缺失项。
 
 # 4. 风险

@@ -629,14 +629,15 @@ function validateQuestions(
       throw new Error("选择题选项缺失或重复");
     if (section.responseType === "listening" && (typeof q.audioScript !== "string" || !q.audioScript.trim()))
       throw new Error("听力题缺少原创听力脚本");
+    const illustration = q.illustration ? normalizeAssessmentIllustration(q.illustration) : undefined;
     const hasMaterial = typeof q.material === "string" && Boolean(q.material.trim()) &&
       !/^(?:无|无需|不需要|none|n\/a|not applicable)[。.！!]?$/i.test(q.material.trim());
     const referencesMaterial = /根据(?:短文|文章|对话|词库|材料)|文中|上文|according to (?:the )?(?:passage|text|story|dialogue)/i.test(q.stem);
-    if (
-      (section.requiresMaterial || referencesMaterial) && !hasMaterial
-    )
+    // Picture matching consumes a visual resource, not a missing passage.
+    // Explicit text references still require their actual text alongside it.
+    const hasVisualMaterial = section.requiresVisual && Boolean(illustration) && !referencesMaterial;
+    if ((section.requiresMaterial || referencesMaterial) && !hasMaterial && !hasVisualMaterial)
       throw new Error("题目依赖的完整材料缺失；普通选择题不能引用不存在的短文");
-    const illustration = q.illustration ? normalizeAssessmentIllustration(q.illustration) : undefined;
     if (section.requiresVisual && !illustration) throw new Error('图片题缺少原创 illustration 配图，不能只用文字替代图片');
     if (/!\[[^\]]*\]\(|<img\b/i.test(`${q.stem}\n${q.material || ""}`) || (!illustration && /看图|如图|图中|in the picture/i.test(`${q.stem}\n${q.material || ""}`)))
       throw new Error("题目引用了未提供的图片，必须附经过校验的原创 illustration，不能嵌入外链图片");

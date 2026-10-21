@@ -449,6 +449,21 @@ test('provider timeouts are not reported as invalid paper contents', async () =>
   assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 0);
 });
 
+test('complete picture matching materials do not require a redundant passage; actual passage references still do', async () => {
+  const f = fixture([1]);
+  f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
+  Object.assign(f.summary.sections[0], { title: '阅读句子，选择相应图片', questionKind: '图文配对', requiresMaterial: true, requiresVisual: true });
+  f.dependencies.analyzeVision = async () => ({ pages: 1, issues: [], sections: [{ title: '图文配对', questionRange: '1', responseType: 'choice', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: false }], assets: [{ type: 'diagram', page: 1, bbox: [0, 0, 100, 100], questionNumbers: ['1'], description: '不同数量的图案配对', confidence: 1 }] });
+  const illustration = { description: 'A有两个圆，B有一个圆', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240"><text x="20" y="30">A</text><circle cx="40" cy="80" r="15"/><circle cx="90" cy="80" r="15"/><text x="200" y="30">B</text><circle cx="220" cy="80" r="15"/></svg>' };
+  for (const referencesPassage of [false, true]) {
+    const analysis = await f.analyse(String(referencesPassage));
+    const task = await createSourcePaperTask(request(analysis.id, [1], String(referencesPassage)), { ...f.dependencies, model: async () => ({ questions: [{ stem: referencesPassage ? '根据短文，Lily有几个圆？' : 'Choose the picture showing two circles.', options: ['A', 'B'], illustration, answer: 'A', explanation: '数出两个圆的是A。' }] }) });
+    await f.jobs.shift()!();
+    assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, referencesPassage ? 'failed' : 'ready');
+  }
+  assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 1);
+});
+
 for (const responseType of ["multi_choice", "listening"] as const) {
   test(`${responseType} generates and preserves answers through submission and review`, async () => {
     const f = fixture([1]);
