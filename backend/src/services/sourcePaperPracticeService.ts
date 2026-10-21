@@ -307,6 +307,8 @@ async function validatedModel<T>(
 ): Promise<T> {
   let correction = "";
   for (let attempt = 0; attempt < 2; attempt++) {
+    const startedAt = Date.now();
+    let validationFailure = '';
     try {
       signal.throwIfAborted();
       const value = await (dependencies.model || callModel)(
@@ -323,15 +325,20 @@ async function validatedModel<T>(
         // Only local validation messages are correction input; provider errors
         // may contain request details and must never be echoed into a prompt.
         correction = error instanceof Error ? error.message.slice(0, 350) : "结果不完整";
+        validationFailure = correction;
         throw error;
       }
     } catch (error) {
+      // Keep provider diagnostics separate from locally generated validation
+      // messages: provider bodies can contain request data or credentials.
+      const timeout = error instanceof Error && error.name === 'APIConnectionTimeoutError';
+      console.warn('[SourcePaperModel]', JSON.stringify({ attempt: attempt + 1, elapsedMs: Date.now() - startedAt, phase: validationFailure ? 'validation' : 'provider', errorType: error instanceof Error ? error.name : 'unknown', ...(validationFailure ? { validation: validationFailure } : {}) }));
       if (
         attempt ||
         signal.aborted ||
         (error instanceof SourcePaperError && error.status === 503)
       )
-        throw error;
+        throw timeout ? new SourcePaperError('model_timeout', '模型响应超时，请重新生成；本次未保存不完整试卷', 504) : error;
     }
   }
   throw new Error("模型结果校验失败");
@@ -812,8 +819,11 @@ export async function createSourcePaperTask(
           const section = summary.sections[s];
         const questions: GeneratedQuestion[] = [];
           if (summary.visualEvidence) Object.assign(section, { visualEvidence: summary.visualEvidence });
-          for (let offset = 0; offset < counts[s]; offset += 8) {
-            const count = Math.min(8, counts[s] - offset);
+          // SVG output is substantially larger than text answers. Bound each
+          // visual request without shortening the confirmed paper.
+          const batchSize = section.requiresVisual ? 2 : 8;
+          for (let offset = 0; offset < counts[s]; offset += batchSize) {
+            const count = Math.min(batchSize, counts[s] - offset);
             const batch = await validatedModel(
               `为${analysis.targetGrade}学生生成${normalizeSubject(source.subject)}原创测试，难度必须适龄。母卷仅用来提取题型与知识点，下面只提供结构摘要；不得复现、简单换数或改写母卷。每题必须自足，可独立回顾。保留阅读/完形/配对/判断等真实题型，不能一律变为普通选择题。当前分区${JSON.stringify(section)}，本批恰好${count}道子题，知识点${JSON.stringify(summary.knowledgePoints)}。与已生成题目避免重复：${JSON.stringify([...sections.flatMap((x) => x.questions.map(q => q.stem)), ...questions.map(q => q.stem)])}。若requiresMaterial=true，每道子题都附上其所属完整原创材料material（文章/词库/配对项目等）及相同题组groupId，不能引用外部图片或未提供材料，每批自成完整题组，不能跨批依赖。每道stem必须提出一个明确问题或提供一个可填写的空格，不能只给阅读指令和材料而没有实际问题。输出前逐题自检：材料足以作答、答案集合确定、解析与答案一致；选择题正确选项位置应变化，不能全部是A。responseType=choice必须有至少2个非空不同选项，答案明确对应选项。responseType=multi_choice时answer必须是至少两个正确选项的字符串数组；choice和listening的answer是单个正确选项字符串，不能多选；listening还必须提供完整原创audioScript。requiresVisual=true时每题必须附illustration对象{description:配图中文说明,svg:完整SVG字符串}，不能只文字替代图。配图是不同于母卷的原创简单示意图，必须清晰支持本题唯一答案，不写出答案标签；复杂照片转化为相同知识点的简单可辨识原创场景。SVG不超过20000字符，根元素xmlns="http://www.w3.org/2000/svg"及viewBox="0 0 480 240"。仅用svg/g/path/rect/circle/ellipse/line/polyline/polygon/text/tspan/title/desc及基础绘图属性（fill/stroke、坐标、font-size、text-anchor等），不使用style/id/class/href/事件/脚本/image/外链/实体；文字不要依赖外部字体。JSON中属性引号正确转义。返回{"questions":[{"stem":"题干","options":["A. ...","B. ..."],"material":"完整原创材料","groupId":"g1","answer":"参考答案","explanation":"适合学生的解析"}]}，不要分数。`,
               // Summary flags describe the source, but every newly generated

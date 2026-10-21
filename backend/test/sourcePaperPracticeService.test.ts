@@ -432,6 +432,18 @@ test('text-model output cannot invent verified visual evidence', async () => {
   assert.equal((await f.analyse()).status, 'failed');
 });
 
+test('provider timeouts are not reported as invalid paper contents', async () => {
+  const f = fixture([1]);
+  const analysis = await f.analyse();
+  const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async () => { const error = new Error('private provider response'); error.name = 'APIConnectionTimeoutError'; throw error; } });
+  await f.jobs.shift()!();
+  const failed = getLearningTask(f.database, task.id, 'child_1')!;
+  assert.equal(failed.errorCode, 'model_timeout');
+  assert.match(failed.errorMessage!, /响应超时/);
+  assert.doesNotMatch(failed.errorMessage!, /private provider/);
+  assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 0);
+});
+
 for (const responseType of ["multi_choice", "listening"] as const) {
   test(`${responseType} generates and preserves answers through submission and review`, async () => {
     const f = fixture([1]);
