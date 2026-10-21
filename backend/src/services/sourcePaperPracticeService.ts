@@ -13,7 +13,8 @@ import {
 } from "./learningTaskService.js";
 import { isSourcePaperMaterial } from "../utils/materialClassification.js";
 import { normalizeSubject } from "../utils/subject.js";
-import { analyzeSourcePaperVision, SourcePaperVisionEvidence } from "./sourcePaperVisionService.js";
+import { analyzeSourcePaperVision, assertEvidenceGeneratable, SourcePaperVisionEvidence } from "./sourcePaperVisionService.js";
+import { AssessmentIllustration, normalizeAssessmentIllustration } from "../utils/assessmentIllustration.js";
 
 export class SourcePaperError extends Error {
   constructor(
@@ -32,6 +33,7 @@ export type SourcePaperSection = {
   questionCount: number;
   groupCount: number;
   requiresMaterial: boolean;
+  requiresVisual?: boolean;
 };
 export type SourcePaperSummary = {
   scope: "full" | "written_only";
@@ -335,6 +337,10 @@ async function validatedModel<T>(
   throw new Error("模型结果校验失败");
 }
 function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence): SourcePaperSummary {
+  if (visualEvidence) {
+    try { assertEvidenceGeneratable(visualEvidence); }
+    catch { throw new SourcePaperError('source_incomplete', '母卷视觉材料仍有缺失或需要学生绘图，请核对原文件', 422); }
+  }
   if (
     !value ||
     !["full", "written_only"].includes(value.scope) ||
@@ -379,12 +385,15 @@ function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence)
           422,
         );
       const kind = `${s.title} ${s.questionKind}`;
-      if (/看图|读图|画图|作图|绘图/.test(kind))
+      if (s.requiresDrawing === true || /画图|作图|绘图/.test(kind))
         throw new SourcePaperError(
           "unsupported_structure",
           `暂不支持该母卷分区：${s.title}，需要绘图作答能力`,
           422,
         );
+      const requiresVisual = s.requiresVisual === true || /看图|读图|图片|图表|picture|diagram/i.test(kind);
+      if (requiresVisual && (!visualEvidence || !visualEvidence.assets.length))
+        throw new SourcePaperError('source_incomplete', `暂不支持缺少可核验视觉材料的分区：${s.title}`, 422);
       if (/阅读|完形|选词|匹配|配对/.test(kind) && !s.requiresMaterial)
         throw new SourcePaperError(
           "source_incomplete",
@@ -399,6 +408,7 @@ function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence)
         questionCount: s.questionCount,
         groupCount: s.groupCount,
         requiresMaterial: s.requiresMaterial,
+        requiresVisual,
       };
     },
   );
@@ -502,12 +512,12 @@ export async function requestSourcePaperAnalysis(
         let visionContext = "";
         let visionEvidence: SourcePaperVisionEvidence | undefined;
         const visionModelConfigured = Boolean(process.env.ARK_SOURCE_PAPER_VISION_MODEL_ID || process.env.ARK_VISION_MODEL_ID);
-        if (source.filePath && visionModelConfigured) {
+        if (source.filePath && (visionModelConfigured || dependencies.analyzeVision)) {
           visionEvidence = await (dependencies.analyzeVision || ((filePath: string) => analyzeSourcePaperVision(filePath)))(source.filePath);
           visionContext = `\n原始PDF视觉证据（只用于确认题型和材料是否完整，不得复现题目）：${JSON.stringify(visionEvidence)}`;
         }
         const summary = await validatedModel(
-          `分析完整母卷的题型、子题数量、材料依赖和知识点，仅提取结构，不输出原题、原文或答案。目标年级${grade}，判断是否适龄。逐一核对从首题到末题，阅读/完形/配对/判断保持原题型名称，responseType仅是作答控件(choice/multi_choice/fill/essay/listening)。阅读等题组按子题计数。图片缺失、图片未转文字、材料残缺、无法完整核验均在issues列出原因；听力分区只有在有完整听力原文或视觉证据明确完整时才允许listening，否则写入issues。多选题允许multi_choice。只有原资料明确是完整笔试版时scope才可written_only，否则full。无参考答案不算缺失。返回 {"scope":"full","coveredThroughEnd":true,"gradeAppropriate":true,"knowledgePoints":["知识点"],"issues":[],"sections":[{"title":"阅读理解","questionKind":"阅读选择","responseType":"choice","questionCount":5,"groupCount":1,"requiresMaterial":true}]}。资料信息：${JSON.stringify(sourceSnapshot(source))}${visionContext}\n完整母卷开始\n${content}\n完整母卷结束`,
+          `分析完整母卷的题型、子题数量、材料依赖和知识点，仅提取结构，不输出原题、原文或答案。目标年级${grade}，按实际知识点判断适龄，不单凭资料标题年级判断。逐一核对首题到末题，阅读/完形/配对/判断保持真实题型名称，responseType仅是作答控件(choice/multi_choice/fill/essay/listening)。阅读等题组按子题计数。看图填空、看图写作是文字作答：requiresVisual=true，requiresDrawing=false；仅要求学生画图、补画的题才requiresDrawing=true。视觉证据已核实的原图不因OCR未转写而算缺失；真正看不清、缺图或残缺必须列入issues，不得补猜。听力仅在有完整听力原文或视觉证据明确完整时允许，否则写入issues。只有原资料明确为完整笔试版才scope=written_only，否则full。无参考答案不算缺失。返回 {"scope":"full","coveredThroughEnd":true,"gradeAppropriate":true,"knowledgePoints":["知识点"],"issues":[],"sections":[{"title":"阅读理解","questionKind":"阅读选择","responseType":"choice","questionCount":5,"groupCount":1,"requiresMaterial":true,"requiresVisual":false,"requiresDrawing":false}]}。资料信息：${JSON.stringify(sourceSnapshot(source))}${visionContext}\n完整母卷开始\n${content}\n完整母卷结束`,
           (value) => validateSummary(value, visionEvidence),
           dependencies,
           signal,
@@ -567,6 +577,7 @@ type GeneratedQuestion = {
   answer: string | string[];
   explanation: string;
   audioScript?: string;
+  illustration?: AssessmentIllustration;
   score: number;
 };
 function validateQuestions(
@@ -614,8 +625,10 @@ function validateQuestions(
       (section.requiresMaterial || referencesMaterial) && !hasMaterial
     )
       throw new Error("题目依赖的完整材料缺失；普通选择题不能引用不存在的短文");
-    if (/!\[[^\]]*\]\(|<img\b|看图|如图|图中|in the picture/i.test(`${q.stem}\n${q.material || ""}`))
-      throw new Error("题目依赖未支持的图片，必须生成纯文字可作答内容");
+    const illustration = q.illustration ? normalizeAssessmentIllustration(q.illustration) : undefined;
+    if (section.requiresVisual && !illustration) throw new Error('图片题缺少原创 illustration 配图，不能只用文字替代图片');
+    if (/!\[[^\]]*\]\(|<img\b/i.test(`${q.stem}\n${q.material || ""}`) || (!illustration && /看图|如图|图中|in the picture/i.test(`${q.stem}\n${q.material || ""}`)))
+      throw new Error("题目引用了未提供的图片，必须附经过校验的原创 illustration，不能嵌入外链图片");
     for (const body of [q.stem, q.material || ""]) {
       const normalized = compact(body);
       for (let pos = 0; pos + 80 <= normalized.length; pos++) {
@@ -641,6 +654,7 @@ function validateQuestions(
       answer: section.responseType === "multi_choice" ? q.answer.map((x: string) => x.trim()) : q.answer.trim(),
       explanation: q.explanation.trim(),
       audioScript: section.responseType === "listening" ? q.audioScript.trim() : undefined,
+      ...(illustration ? { illustration } : {}),
       score: 0,
     };
   });
@@ -662,7 +676,8 @@ export async function createSourcePaperTask(
     throw new SourcePaperError("analysis_missing", "请先分析所选母卷", 404);
   if (analysis.status !== "ready" || !analysis.summaryJson)
     throw new SourcePaperError("source_not_ready", "母卷结构分析尚未成功");
-  const summary = validateSummary(JSON.parse(analysis.summaryJson));
+  const storedSummary = JSON.parse(analysis.summaryJson);
+  const summary = validateSummary(storedSummary, storedSummary.visualEvidence);
   const counts = input.source?.counts;
   if (!summary.gradeAppropriate)
     throw new SourcePaperError(
@@ -800,7 +815,7 @@ export async function createSourcePaperTask(
           for (let offset = 0; offset < counts[s]; offset += 8) {
             const count = Math.min(8, counts[s] - offset);
             const batch = await validatedModel(
-              `为${analysis.targetGrade}学生生成${normalizeSubject(source.subject)}原创测试，难度必须适龄。母卷仅用来提取题型与知识点，下面只提供结构摘要；不得复现、简单换数或改写母卷。每题必须自足，可独立回顾。保留阅读/完形/配对/判断等真实题型，不能一律变为普通选择题。当前分区${JSON.stringify(section)}，本批恰好${count}道子题，知识点${JSON.stringify(summary.knowledgePoints)}。与已生成题目避免重复：${JSON.stringify([...sections.flatMap((x) => x.questions.map(q => q.stem)), ...questions.map(q => q.stem)])}。若requiresMaterial=true，每道子题都附上其所属完整原创材料material（文章/词库/配对项目等）及相同题组groupId，不能引用外部图片或未提供材料，每批自成完整题组，不能跨批依赖。每道stem必须提出一个明确问题或提供一个可填写的空格，不能只给阅读指令和材料而没有实际问题。输出前逐题自检：材料足以作答、仅一个确定答案、解析与答案一致；选择题正确选项位置应变化，不能全部是A。responseType=choice必须有至少2个非空不同选项，答案明确对应选项。返回{"questions":[{"stem":"题干","options":["A. ...","B. ..."],"material":"完整原创材料","groupId":"g1","answer":"参考答案","explanation":"适合学生的解析"}]}，不要分数。`,
+              `为${analysis.targetGrade}学生生成${normalizeSubject(source.subject)}原创测试，难度必须适龄。母卷仅用来提取题型与知识点，下面只提供结构摘要；不得复现、简单换数或改写母卷。每题必须自足，可独立回顾。保留阅读/完形/配对/判断等真实题型，不能一律变为普通选择题。当前分区${JSON.stringify(section)}，本批恰好${count}道子题，知识点${JSON.stringify(summary.knowledgePoints)}。与已生成题目避免重复：${JSON.stringify([...sections.flatMap((x) => x.questions.map(q => q.stem)), ...questions.map(q => q.stem)])}。若requiresMaterial=true，每道子题都附上其所属完整原创材料material（文章/词库/配对项目等）及相同题组groupId，不能引用外部图片或未提供材料，每批自成完整题组，不能跨批依赖。每道stem必须提出一个明确问题或提供一个可填写的空格，不能只给阅读指令和材料而没有实际问题。输出前逐题自检：材料足以作答、答案集合确定、解析与答案一致；选择题正确选项位置应变化，不能全部是A。responseType=choice必须有至少2个非空不同选项，答案明确对应选项。responseType=multi_choice时answer必须是至少两个正确选项的字符串数组；choice和listening的answer是单个正确选项字符串，不能多选；listening还必须提供完整原创audioScript。requiresVisual=true时每题必须附illustration对象{description:配图中文说明,svg:完整SVG字符串}，不能只文字替代图。配图是不同于母卷的原创简单示意图，必须清晰支持本题唯一答案，不写出答案标签；复杂照片转化为相同知识点的简单可辨识原创场景。SVG不超过20000字符，根元素xmlns="http://www.w3.org/2000/svg"及viewBox="0 0 480 240"。仅用svg/g/path/rect/circle/ellipse/line/polyline/polygon/text/tspan/title/desc及基础绘图属性（fill/stroke、坐标、font-size、text-anchor等），不使用style/id/class/href/事件/脚本/image/外链/实体；文字不要依赖外部字体。JSON中属性引号正确转义。返回{"questions":[{"stem":"题干","options":["A. ...","B. ..."],"material":"完整原创材料","groupId":"g1","answer":"参考答案","explanation":"适合学生的解析"}]}，不要分数。`,
               // Summary flags describe the source, but every newly generated
               // question must retain any context it actually depends on.
               (value) =>

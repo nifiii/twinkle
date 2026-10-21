@@ -125,7 +125,7 @@ async function analyzePageWithArk(input: { page: number; imagePath: string }, de
     model,
     temperature: 0.1,
     messages: [{ role: 'user', content: [
-      { type: 'text', text: `你是小学试卷结构分析器。只输出 JSON，不要复现题目全文、原文或原图。分析第 ${input.page} 页，识别分区、题号范围、作答类型和材料依赖。responseType 只能是 choice、multi_choice、fill、essay、listening。若看不清或材料缺失写入 issues。格式：{"sections":[{"title":"","questionRange":"1-5","responseType":"choice","requiresMaterial":false,"requiresVisual":false,"requiresAudio":false,"requiresDrawing":false}],"assets":[{"type":"diagram","page":${input.page},"bbox":[0,0,0,0],"questionNumbers":[],"description":"","confidence":0.0}],"issues":[]}` },
+      { type: 'text', text: `你是小学试卷结构分析器。只输出 JSON，不复现题目全文、原文或原图。分析第 ${input.page} 页，识别分区、题号范围、作答类型和材料依赖。responseType 仅 choice、multi_choice、fill、essay、listening。看图填空/选择/写话都只需文字作答，requiresVisual=true、requiresDrawing=false；仅要求学生画图或补画才requiresDrawing=true。assets.description概括视觉对象、数量、关系及考查能力，足以据此设计不同情境的原创配图，不转录原题。若原图清楚可见，不因OCR缺少图片文字而报缺失；真正看不清或材料缺失必须写入issues，不猜测。跨页阅读的续页不是材料缺失。格式：{"sections":[{"title":"","questionRange":"1-5","responseType":"choice","requiresMaterial":false,"requiresVisual":false,"requiresAudio":false,"requiresDrawing":false}],"assets":[{"type":"diagram","page":${input.page},"bbox":[0,0,0,0],"questionNumbers":[],"description":"","confidence":0.0}],"issues":[]}` },
       { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } },
     ] }] as any,
   } as any);

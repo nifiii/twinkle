@@ -28,6 +28,8 @@
 - `AssessmentQuestion.type`: `choice | multi_choice | listening | fill | essay`。
 - `AssessmentQuestion.answer`: `string | string[]`；`multi_choice` 必须是非空字符串数组。
 - `PaperAttempt.answers`: `Record<string, string | string[]>`。
+- 图片题追加 `AssessmentQuestion.illustration?: { description: string; svg: string }`，并原样保存到作答回顾快照。看图文字作答分区 `requiresVisual=true` 时每题必填；只允许不含脚本、外链、嵌入图片的静态 SVG 子集；缺图或非法图阻断整卷发布。
+- `requiresDrawing` 仅指学生需要画图或补画；看图填空、选择、写作不能归入绘图作答。
 - 缺失材料响应使用 `400`，`field=sourcePaper`，错误信息必须说明缺失项。
 
 # 4. 风险

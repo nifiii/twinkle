@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
+import { AssessmentIllustration, normalizeAssessmentIllustration } from '../utils/assessmentIllustration.js';
 import { mathjax } from 'mathjax-full/js/mathjax.js';
 import { TeX } from 'mathjax-full/js/input/tex.js';
 import { AllPackages } from 'mathjax-full/js/input/tex/AllPackages.js';
@@ -16,7 +17,7 @@ import { getAssessmentPaper } from './assessmentPaperService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 type ExportVariant = 'paper' | 'answer';
-type PaperQuestion = { id: string; type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay'; stem: string; material?: string; options?: string[]; answer: string | string[]; audioScript?: string; explanation?: string; score: number };
+type PaperQuestion = { id: string; type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay'; stem: string; material?: string; illustration?: AssessmentIllustration; options?: string[]; answer: string | string[]; audioScript?: string; explanation?: string; score: number };
 type PaperContent = { title?: string; schemaVersion?: number; generationVersion?: number; blueprint?: { subject?: string; grade?: string; chapterTitles?: string[] }; sections?: Array<{ title?: string; questions?: PaperQuestion[] }> };
 type ExportJob = { id: string; paperId: string; variant: ExportVariant; status: string; filePath: string | null; error: string | null; createdAt: number; updatedAt: number; downloadUrl: string | null };
 
@@ -144,7 +145,7 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
           document.font('NotoSansCJK').fontSize(11);
           const blocks = [printedMaterial, question.stem, question.options?.join('    '), ...(variant === 'answer' ? [answer, question.audioScript, question.explanation] : [])].filter(Boolean) as string[];
           const height = blocks.reduce((sum, block) => sum + document.heightOfString(block, { width: 487, lineGap: 4 }), 0)
-            + (variant === 'paper' ? question.type === 'essay' ? 175 : question.type === 'fill' ? 35 : 0 : 0) + 65;
+            + (variant === 'paper' ? question.type === 'essay' ? 175 : question.type === 'fill' ? 35 : 0 : 0) + 65 + (question.illustration ? 180 : 0);
           // Keep a normal question with its passage and answer area. Very long
           // passages may flow over pages, with the larger bottom margin keeping
           // all body text away from the footer.
@@ -159,6 +160,13 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
         document.font('NotoSansCJK').fontSize(11).fillColor('#111827').text(paper.schemaVersion === 2 ? `${number}.` : `${number}. （${question.score} 分）`, { continued: true });
         document.text(' ');
         writeStem(document, question.stem);
+        if (question.illustration) {
+          const illustration = normalizeAssessmentIllustration(question.illustration);
+          ensureSpace(document, 180);
+          const top = document.y;
+          SVGtoPDF(document, illustration.svg, 54, top, { width: 360, height: 170, fontCallback: () => 'NotoSansCJK' });
+          document.y = top + 180;
+        }
         if (question.options?.length) {
           document.font('NotoSansCJK').fontSize(10.5).fillColor('#334155').text(question.options.join('    '), { lineGap: 4 });
         }

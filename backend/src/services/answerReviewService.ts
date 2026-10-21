@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { parseLearningOwnerId } from './learningDomain.js';
+import { AssessmentIllustration, normalizeAssessmentIllustration } from '../utils/assessmentIllustration.js';
 
 export type AnswerReviewSource = 'quiz_result' | 'paper_attempt';
 
@@ -14,6 +15,7 @@ export type AnswerReviewItem = {
   options?: string[];
   material?: string;
   questionKind?: string;
+  illustration?: AssessmentIllustration;
 };
 
 type StoredQuestion = {
@@ -29,6 +31,7 @@ type StoredQuestion = {
   options?: unknown;
   material?: unknown;
   questionKind?: unknown;
+  illustration?: unknown;
 };
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -56,6 +59,7 @@ export function createReviewItems(questions: StoredQuestion[], answers: Record<s
       ...(Array.isArray(question.options) ? { options: question.options.filter((item): item is string => typeof item === 'string') } : {}),
       ...(text(question.material) ? { material: text(question.material) } : {}),
       ...(text(question.questionKind) ? { questionKind: text(question.questionKind) } : {}),
+      ...(question.illustration ? { illustration: normalizeAssessmentIllustration(question.illustration) } : {}),
     };
   });
 }

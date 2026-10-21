@@ -25,8 +25,9 @@ function PreviewQuestion({ question, variant, hideScores }: { question: FlatQues
     <p className="text-xs text-slate-500">{question.sectionTitle}</p>
     {question.material && <p className="mt-3 whitespace-pre-wrap break-words bg-slate-50 p-4 text-base leading-7">{question.material}</p>}
     <h2 className="mt-2 text-base font-medium leading-7">{question.number}. <MathStem stem={question.stem} /> {!hideScores && <span className="whitespace-nowrap text-sm font-normal text-slate-500">（{question.score} 分）</span>}</h2>
+    <QuestionIllustration illustration={question.illustration} />
     {question.options?.length ? <ol className="mt-3 grid gap-1 text-sm leading-6">{question.options.map(option => <li key={option}>{option}</li>)}</ol> : null}
-    {variant === 'answer' ? <div className="mt-3 border-l-2 border-green-700 pl-3 text-sm leading-6"><p className="font-medium text-green-800">答案：{question.answer}</p>{question.explanation ? <p className="mt-1 text-slate-600">解析：{question.explanation}</p> : null}</div> : question.type === 'essay' ? <div className="mt-4 space-y-5" aria-label={`第${question.number}题答题区`}>{Array.from({ length: 5 }, (_, index) => <div key={index} className="border-b border-slate-300" />)}</div> : question.type === 'fill' ? <div className="mt-4 border-b border-slate-400" aria-label={`第${question.number}题答题区`} /> : null}
+    {variant === 'answer' ? <div className="mt-3 border-l-2 border-green-700 pl-3 text-sm leading-6"><p className="font-medium text-green-800">答案：{Array.isArray(question.answer) ? question.answer.join('、') : question.answer}</p>{question.explanation ? <p className="mt-1 text-slate-600">解析：{question.explanation}</p> : null}</div> : question.type === 'essay' ? <div className="mt-4 space-y-5" aria-label={`第${question.number}题答题区`}>{Array.from({ length: 5 }, (_, index) => <div key={index} className="border-b border-slate-300" />)}</div> : question.type === 'fill' ? <div className="mt-4 border-b border-slate-400" aria-label={`第${question.number}题答题区`} /> : null}
   </article>;
 }
 
@@ -89,3 +90,4 @@ export default function PaperPreview({ paperId, currentUser, onBack }: { paperId
     <div className="overflow-x-auto pb-3"><main className="min-w-0 bg-white px-5 py-8 sm:px-14 sm:py-12 text-slate-900 shadow-sm print:min-w-0"><header className="border-b-2 border-slate-900 pb-4 text-sm text-slate-600"><div className="flex justify-between gap-4"><span>原创{variantLabel(variant)} · 第 {paper.generationVersion} 版</span>{paper.content.schemaVersion !== 2 && <span>{paper.content.totalScore} 分</span>}</div></header><h1 className="mt-8 text-center text-2xl font-semibold">{paper.content.title}</h1><div className="mt-8">{questions.map(question => <PreviewQuestion key={question.id} question={question} variant={variant} hideScores={paper.content.schemaVersion === 2} />)}</div></main></div>
   </section>;
 }
+import QuestionIllustration from './QuestionIllustration';

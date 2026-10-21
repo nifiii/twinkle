@@ -393,6 +393,45 @@ test("unsupported images and unassociated reading sections fail analysis", async
   }
 });
 
+test("verified picture-to-text sections generate original drawings and preserve them in completed reviews", async () => {
+  const f = fixture([1]);
+  f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
+  f.summary.sections[0].title = '看图填写单词补全句子';
+  f.summary.sections[0].questionKind = '看图填空';
+  f.summary.sections[0].responseType = 'fill';
+  f.dependencies.analyzeVision = async () => ({ pages: 1, issues: [], sections: [{ title: '看图填空', questionRange: '1', responseType: 'fill', requiresMaterial: false, requiresVisual: true, requiresAudio: false, requiresDrawing: false }], assets: [{ type: 'diagram', page: 1, bbox: [0, 0, 100, 100], questionNumbers: ['1'], description: '物体数量示意', confidence: 1 }] });
+  const analysis = await f.analyse();
+  assert.equal(analysis.status, 'ready');
+  const illustration = { description: '两个圆形', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240"><circle cx="50" cy="50" r="20"/><circle cx="150" cy="50" r="20"/></svg>' };
+  const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async () => ({ questions: [{ stem: 'There are ____ circles.', illustration, answer: 'two', explanation: '数出两个圆。' }] }) });
+  await f.jobs.shift()!();
+  assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, 'ready');
+  const row = f.database.prepare('SELECT id,contentJson FROM assessment_papers').get() as any;
+  const question = JSON.parse(row.contentJson).sections[0].questions[0];
+  const attempt = createPaperAttempt({ ownerId: 'child_1', paperId: row.id }, f.database);
+  updatePaperAttempt(attempt.id, { ownerId: 'child_1', action: 'submit', answers: { [question.id]: 'two' } }, f.database);
+  assert.deepEqual(getPaperAttemptReview(f.database, attempt.id, 'child_1')!.items[0].illustration, illustration);
+  // A retry cannot publish a picture question without its drawing.
+  const second = await f.analyse('missing-picture');
+  const missing = await createSourcePaperTask(request(second.id, [1], 'missing-picture'), f.dependencies);
+  await f.jobs.shift()!();
+  assert.equal(getLearningTask(f.database, missing.id, 'child_1')?.generationStatus, 'failed');
+  assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 1);
+});
+
+test('actual drawing responses remain unsupported', async () => {
+  const f = fixture([1]);
+  f.summary.sections[0].questionKind = '画图补全形状';
+  assert.equal((await f.analyse()).status, 'failed');
+});
+
+test('text-model output cannot invent verified visual evidence', async () => {
+  const f = fixture([1]);
+  f.summary.sections[0].questionKind = '看图填写';
+  (f.summary as any).visualEvidence = { pages: 1, sections: [], issues: [], assets: [{ description: '模型自行声称存在的图' }] };
+  assert.equal((await f.analyse()).status, 'failed');
+});
+
 for (const responseType of ["multi_choice", "listening"] as const) {
   test(`${responseType} generates and preserves answers through submission and review`, async () => {
     const f = fixture([1]);

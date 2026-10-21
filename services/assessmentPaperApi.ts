@@ -28,6 +28,7 @@ export interface AssessmentBlueprint {
 }
 
 export interface AssessmentQuestion {
+  illustration?: { description: string; svg: string };
   id: string;
   type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay';
   stem: string;
@@ -81,6 +82,7 @@ export interface PaperExportJob {
 }
 
 export interface AnswerReviewItem {
+  illustration?: { description: string; svg: string };
   questionId: string;
   type: string;
   question: string;
