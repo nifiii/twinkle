@@ -869,10 +869,10 @@ export async function createSourcePaperTask(
           });
         }
         signal.throwIfAborted();
-        // Repeated blank instructions belong to different questions when the
-        // passage or drawing differs. Context is part of a question's identity.
+        // Instructions repeat in exams. Compare everything the student uses
+        // to answer, including choices/audio, not the answer or explanation.
         const questionKeys = sections.flatMap((s) => s.questions.map((q) =>
-          JSON.stringify([q.stem, q.material || null, q.illustration?.svg || null])));
+          JSON.stringify([q.type, q.stem, q.options || null, q.material || null, q.illustration?.svg || null, q.audioScript || null])));
         if (new Set(questionKeys).size !== questionKeys.length)
           throw new SourcePaperError('generated_content_incomplete', '全卷包含题干及材料均相同的重复题目，请重新生成', 422);
         const latestSource = requireSource(database, owner, source.id);

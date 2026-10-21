@@ -583,6 +583,19 @@ test('identical blank instructions with different passages are distinct; actual 
   }
 });
 
+test('the choices are part of a question, not just its repeated instruction', async () => {
+  for (const identicalChoices of [false, true]) {
+    const f = fixture([3]);
+    const analysis = await f.analyse();
+    const task = await createSourcePaperTask(request(analysis.id, [3]), {
+      ...f.dependencies,
+      model: async () => ({ questions: ['red', 'green', 'yellow'].map(colour => ({ stem: 'Choose the blue word.', options: ['A. blue', `B. ${identicalChoices ? 'red' : colour}`], answer: 'A. blue', explanation: 'blue表示蓝色。' })) }),
+    });
+    await f.jobs.shift()!();
+    assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, identicalChoices ? 'failed' : 'ready');
+  }
+});
+
 test("placeholder context cannot satisfy required passages", async () => {
   const f = fixture([1, 1, 1]);
   const a = await f.analyse();
