@@ -16,7 +16,7 @@ import { getAssessmentPaper } from './assessmentPaperService.js';
 import { parseLearningOwnerId } from './learningDomain.js';
 
 type ExportVariant = 'paper' | 'answer';
-type PaperQuestion = { id: string; type: 'choice' | 'fill' | 'essay'; stem: string; material?: string; options?: string[]; answer: string; explanation?: string; score: number };
+type PaperQuestion = { id: string; type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay'; stem: string; material?: string; options?: string[]; answer: string | string[]; audioScript?: string; explanation?: string; score: number };
 type PaperContent = { title?: string; schemaVersion?: number; generationVersion?: number; blueprint?: { subject?: string; grade?: string; chapterTitles?: string[] }; sections?: Array<{ title?: string; questions?: PaperQuestion[] }> };
 type ExportJob = { id: string; paperId: string; variant: ExportVariant; status: string; filePath: string | null; error: string | null; createdAt: number; updatedAt: number; downloadUrl: string | null };
 
@@ -139,9 +139,10 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
         // before it starts prevents a question from being split from its own
         // answer area at the page boundary.
         ensureSpace(document, question.type === 'essay' && variant === 'paper' ? 280 : 58);
+        const answer = Array.isArray(question.answer) ? question.answer.join('、') : question.answer;
         if (paper.schemaVersion === 2) {
           document.font('NotoSansCJK').fontSize(11);
-          const blocks = [printedMaterial, question.stem, question.options?.join('    '), ...(variant === 'answer' ? [question.answer, question.explanation] : [])].filter(Boolean) as string[];
+          const blocks = [printedMaterial, question.stem, question.options?.join('    '), ...(variant === 'answer' ? [answer, question.audioScript, question.explanation] : [])].filter(Boolean) as string[];
           const height = blocks.reduce((sum, block) => sum + document.heightOfString(block, { width: 487, lineGap: 4 }), 0)
             + (variant === 'paper' ? question.type === 'essay' ? 175 : question.type === 'fill' ? 35 : 0 : 0) + 65;
           // Keep a normal question with its passage and answer area. Very long
@@ -163,7 +164,8 @@ export async function renderAssessmentPdf(paper: PaperContent, variant: ExportVa
         }
         if (variant === 'answer') {
           document.moveDown(0.35);
-          document.font('NotoSansCJK').fontSize(10).fillColor('#166534').text(`答案：${question.answer}`, { lineGap: 3 });
+          document.font('NotoSansCJK').fontSize(10).fillColor('#166534').text(`答案：${answer}`, { lineGap: 3 });
+          if (question.audioScript) document.fillColor('#475569').text(`听力原文：${question.audioScript}`, { lineGap: 3 });
           if (question.explanation) document.fillColor('#475569').text(`解析：${question.explanation}`, { lineGap: 3 });
         } else {
           answerLines(document, question);

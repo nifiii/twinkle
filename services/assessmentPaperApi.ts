@@ -5,7 +5,7 @@ export type AssessmentExamType = 'unit' | 'midterm' | 'final';
 
 export interface AssessmentSection {
   id: string;
-  type: 'choice' | 'fill' | 'essay';
+  type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay';
   questionCount: number;
   scorePerQuestion: number;
   score: number;
@@ -29,13 +29,14 @@ export interface AssessmentBlueprint {
 
 export interface AssessmentQuestion {
   id: string;
-  type: 'choice' | 'fill' | 'essay';
+  type: 'choice' | 'multi_choice' | 'listening' | 'fill' | 'essay';
   stem: string;
   options?: string[];
+  audioScript?: string;
   material?: string;
   groupId?: string;
   questionKind?: string;
-  answer: string;
+  answer: string | string[];
   explanation: string;
   score: number;
   rubric?: Array<{ id: string; score: number; description?: string }>;
@@ -61,7 +62,7 @@ export interface PaperAttempt {
   id: string;
   paperId: string;
   ownerId: string;
-  answers: Record<string, string>;
+  answers: Record<string, string | string[]>;
   status: 'draft' | 'submitted';
   submittedAt: number | null;
   updatedAt: number;
@@ -126,7 +127,7 @@ export const getPaperExport = (id: string, ownerId: string) =>
 export const createPaperAttempt = (body: { ownerId: string; paperId: string }) =>
   request<PaperAttempt>('/paper-attempts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export const savePaperAttempt = (id: string, body: { ownerId: string; action: 'save' | 'submit'; answers: Record<string, string> }) =>
+export const savePaperAttempt = (id: string, body: { ownerId: string; action: 'save' | 'submit'; answers: Record<string, string | string[]> }) =>
   request<PaperAttempt>(`/paper-attempts/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 export const getPaperAttemptReview = (id: string, ownerId: string) =>

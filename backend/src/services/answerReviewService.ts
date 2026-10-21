@@ -38,16 +38,19 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
+function answerText(value: unknown): string {
+  return Array.isArray(value) ? value.filter(item => typeof item === 'string').join('、') : text(value);
+}
 
-export function createReviewItems(questions: StoredQuestion[], answers: Record<string, string>): AnswerReviewItem[] {
+export function createReviewItems(questions: StoredQuestion[], answers: Record<string, string | string[]>): AnswerReviewItem[] {
   return questions.map((question, index) => {
     const questionId = text(question.id) || text(question.questionId) || `q${index + 1}`;
     return {
       questionId,
       type: text(question.type),
       question: text(question.question) || text(question.stem),
-      studentAnswer: answers[questionId] || '',
-      referenceAnswer: text(question.referenceAnswer) || text(question.correctAnswer) || text(question.answer),
+      studentAnswer: answerText(answers[questionId]),
+      referenceAnswer: answerText(question.referenceAnswer) || answerText(question.correctAnswer) || answerText(question.answer),
       explanation: text(question.explanation),
       needsReinforcement: false,
       ...(Array.isArray(question.options) ? { options: question.options.filter((item): item is string => typeof item === 'string') } : {}),
@@ -102,7 +105,7 @@ export function getPaperAttemptReview(database: Database.Database, attemptId: st
     status: string; submittedAt: number | null; contentJson: string | null;
   } | undefined;
   if (!row || row.status !== 'submitted') return null;
-  const answers = parseJson<Record<string, string>>(row.answersJson, {});
+  const answers = parseJson<Record<string, string | string[]>>(row.answersJson, {});
   const snapshot = parseJson<AnswerReviewItem[]>(row.reviewSnapshotJson, []);
   const content = parseJson<{ sections?: Array<{ questions?: StoredQuestion[] }> }>(row.contentJson, {});
   const items = snapshot.length ? snapshot : createReviewItems((content.sections || []).flatMap(section => section.questions || []), answers);

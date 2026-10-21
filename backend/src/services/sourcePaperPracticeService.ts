@@ -13,6 +13,7 @@ import {
 } from "./learningTaskService.js";
 import { isSourcePaperMaterial } from "../utils/materialClassification.js";
 import { normalizeSubject } from "../utils/subject.js";
+import { analyzeSourcePaperVision, SourcePaperVisionEvidence } from "./sourcePaperVisionService.js";
 
 export class SourcePaperError extends Error {
   constructor(
@@ -27,7 +28,7 @@ export type SourcePaperSection = {
   id: string;
   title: string;
   questionKind: string;
-  responseType: "choice" | "fill" | "essay";
+  responseType: "choice" | "multi_choice" | "fill" | "essay" | "listening";
   questionCount: number;
   groupCount: number;
   requiresMaterial: boolean;
@@ -39,6 +40,7 @@ export type SourcePaperSummary = {
   issues: string[];
   gradeAppropriate: boolean;
   coveredThroughEnd: boolean;
+  visualEvidence?: SourcePaperVisionEvidence;
 };
 type Source = {
   id: string;
@@ -49,6 +51,7 @@ type Source = {
   category: string | null;
   tags: string | null;
   mdPath: string | null;
+  filePath: string | null;
 };
 type AnalysisRow = {
   id: string;
@@ -72,6 +75,7 @@ export type SourcePaperDependencies = {
   model?: (prompt: string, signal: AbortSignal) => Promise<unknown>;
   schedule?: (work: () => Promise<void>) => void;
   now?: () => number;
+  analyzeVision?: (filePath: string) => Promise<SourcePaperVisionEvidence>;
 };
 const EXECUTION_MS = 15 * 60_000;
 const text = (value: unknown, label: string): string => {
@@ -95,7 +99,7 @@ function requireSource(
 ): Source {
   const source = database
     .prepare(
-      "SELECT id,title,subject,grade,status,category,tags,mdPath FROM books WHERE id=? AND (ownerId=? OR ownerId='shared')",
+      "SELECT id,title,subject,grade,status,category,tags,mdPath,filePath FROM books WHERE id=? AND (ownerId=? OR ownerId='shared')",
     )
     .get(id, owner) as Source | undefined;
   if (!source)
@@ -330,7 +334,7 @@ async function validatedModel<T>(
   }
   throw new Error("模型结果校验失败");
 }
-function validateSummary(value: any): SourcePaperSummary {
+function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence): SourcePaperSummary {
   if (
     !value ||
     !["full", "written_only"].includes(value.scope) ||
@@ -360,7 +364,7 @@ function validateSummary(value: any): SourcePaperSummary {
         !s.title.trim() ||
         typeof s.questionKind !== "string" ||
         !s.questionKind.trim() ||
-        !["choice", "fill", "essay"].includes(s.responseType) ||
+        !["choice", "multi_choice", "fill", "essay", "listening"].includes(s.responseType) ||
         !Number.isInteger(s.questionCount) ||
         s.questionCount < 1 ||
         s.questionCount > 80 ||
@@ -375,10 +379,10 @@ function validateSummary(value: any): SourcePaperSummary {
           422,
         );
       const kind = `${s.title} ${s.questionKind}`;
-      if (/听力|听音|看图|读图|画图|作图|绘图|多选|多项选择/.test(kind))
+      if (/看图|读图|画图|作图|绘图/.test(kind))
         throw new SourcePaperError(
           "unsupported_structure",
-          `暂不支持该母卷分区：${s.title}，需要音频、图形或多选答题能力`,
+          `暂不支持该母卷分区：${s.title}，需要绘图作答能力`,
           422,
         );
       if (/阅读|完形|选词|匹配|配对/.test(kind) && !s.requiresMaterial)
@@ -422,6 +426,7 @@ function validateSummary(value: any): SourcePaperSummary {
     knowledgePoints: value.knowledgePoints.map((x: string) => x.slice(0, 120)),
     issues: [],
     gradeAppropriate: value.gradeAppropriate,
+    ...(visualEvidence ? { visualEvidence } : {}),
   };
 }
 function schedule(
@@ -494,9 +499,16 @@ export async function requestSourcePaperAnalysis(
     schedule(async () => {
       const signal = AbortSignal.timeout(EXECUTION_MS);
       try {
+        let visionContext = "";
+        let visionEvidence: SourcePaperVisionEvidence | undefined;
+        const visionModelConfigured = Boolean(process.env.ARK_SOURCE_PAPER_VISION_MODEL_ID || process.env.ARK_VISION_MODEL_ID);
+        if (source.filePath && visionModelConfigured) {
+          visionEvidence = await (dependencies.analyzeVision || ((filePath: string) => analyzeSourcePaperVision(filePath)))(source.filePath);
+          visionContext = `\n原始PDF视觉证据（只用于确认题型和材料是否完整，不得复现题目）：${JSON.stringify(visionEvidence)}`;
+        }
         const summary = await validatedModel(
-          `分析完整母卷的题型、子题数量、材料依赖和知识点，仅提取结构，不输出原题、原文或答案。目标年级${grade}，判断是否适龄。逐一核对从首题到末题，阅读/完形/配对/判断保持原题型名称，responseType仅是作答控件(choice/fill/essay)。阅读等题组按子题计数。图片缺失、图片未转文字、材料残缺、听力无原文、无法完整核验均在issues列出原因；当前只支持文字试卷，不生成音频/图像题，含听力分区必须在issues注明不支持，不能自动略去。只有原资料明确是完整笔试版时scope才可written_only，否则full。无参考答案不算缺失。返回 {"scope":"full","coveredThroughEnd":true,"gradeAppropriate":true,"knowledgePoints":["知识点"],"issues":[],"sections":[{"title":"阅读理解","questionKind":"阅读选择","responseType":"choice","questionCount":5,"groupCount":1,"requiresMaterial":true}]}。资料信息：${JSON.stringify(sourceSnapshot(source))}\n完整母卷开始\n${content}\n完整母卷结束`,
-          validateSummary,
+          `分析完整母卷的题型、子题数量、材料依赖和知识点，仅提取结构，不输出原题、原文或答案。目标年级${grade}，判断是否适龄。逐一核对从首题到末题，阅读/完形/配对/判断保持原题型名称，responseType仅是作答控件(choice/multi_choice/fill/essay/listening)。阅读等题组按子题计数。图片缺失、图片未转文字、材料残缺、无法完整核验均在issues列出原因；听力分区只有在有完整听力原文或视觉证据明确完整时才允许listening，否则写入issues。多选题允许multi_choice。只有原资料明确是完整笔试版时scope才可written_only，否则full。无参考答案不算缺失。返回 {"scope":"full","coveredThroughEnd":true,"gradeAppropriate":true,"knowledgePoints":["知识点"],"issues":[],"sections":[{"title":"阅读理解","questionKind":"阅读选择","responseType":"choice","questionCount":5,"groupCount":1,"requiresMaterial":true}]}。资料信息：${JSON.stringify(sourceSnapshot(source))}${visionContext}\n完整母卷开始\n${content}\n完整母卷结束`,
+          (value) => validateSummary(value, visionEvidence),
           dependencies,
           signal,
         );
@@ -552,8 +564,9 @@ type GeneratedQuestion = {
   options?: string[];
   material?: string;
   groupId?: string;
-  answer: string;
+  answer: string | string[];
   explanation: string;
+  audioScript?: string;
   score: number;
 };
 function validateQuestions(
@@ -578,19 +591,22 @@ function validateQuestions(
   return value.questions.map((q: any, index: number) => {
     if (
       !q ||
-      !["stem", "answer", "explanation"].every(
-        (key) => typeof q[key] === "string" && q[key].trim(),
-      )
+      typeof q.stem !== "string" || !q.stem.trim() ||
+      typeof q.explanation !== "string" || !q.explanation.trim() ||
+      (section.responseType !== "multi_choice" && (typeof q.answer !== "string" || !q.answer.trim())) ||
+      (section.responseType === "multi_choice" && (!Array.isArray(q.answer) || q.answer.length < 2 || q.answer.some((x: unknown) => typeof x !== "string" || !x.trim())))
     )
       throw new Error("题干、答案或解析缺失");
     if (
-      section.responseType === "choice" &&
+      ["choice", "multi_choice", "listening"].includes(section.responseType) &&
       (!Array.isArray(q.options) ||
         q.options.length < 2 ||
         q.options.some((x: unknown) => typeof x !== "string" || !x.trim()) ||
         new Set(q.options).size !== q.options.length)
     )
       throw new Error("选择题选项缺失或重复");
+    if (section.responseType === "listening" && (typeof q.audioScript !== "string" || !q.audioScript.trim()))
+      throw new Error("听力题缺少原创听力脚本");
     const hasMaterial = typeof q.material === "string" && Boolean(q.material.trim()) &&
       !/^(?:无|无需|不需要|none|n\/a|not applicable)[。.！!]?$/i.test(q.material.trim());
     const referencesMaterial = /根据(?:短文|文章|对话|词库|材料)|文中|上文|according to (?:the )?(?:passage|text|story|dialogue)/i.test(q.stem);
@@ -613,7 +629,7 @@ function validateQuestions(
       questionKind: section.questionKind,
       stem: q.stem.trim(),
       options:
-        section.responseType === "choice"
+        ["choice", "multi_choice", "listening"].includes(section.responseType)
           ? q.options.map((x: string) => x.trim())
           : undefined,
       material: hasMaterial ? q.material.trim() : undefined,
@@ -622,8 +638,9 @@ function validateQuestions(
         // material itself is the stable association, also in independent reviews.
         ? `${section.id}-${hash(q.material.trim()).slice(0, 16)}`
         : undefined,
-      answer: q.answer.trim(),
+      answer: section.responseType === "multi_choice" ? q.answer.map((x: string) => x.trim()) : q.answer.trim(),
       explanation: q.explanation.trim(),
+      audioScript: section.responseType === "listening" ? q.audioScript.trim() : undefined,
       score: 0,
     };
   });
@@ -779,6 +796,7 @@ export async function createSourcePaperTask(
         for (let s = 0; s < summary.sections.length; s++) {
           const section = summary.sections[s];
         const questions: GeneratedQuestion[] = [];
+          if (summary.visualEvidence) Object.assign(section, { visualEvidence: summary.visualEvidence });
           for (let offset = 0; offset < counts[s]; offset += 8) {
             const count = Math.min(8, counts[s] - offset);
             const batch = await validatedModel(

@@ -17,7 +17,7 @@ const difficultyOptions: Array<{ id: AssessmentDifficulty; label: string; descri
 ];
 
 const examLabels: Record<AssessmentExamType, string> = { unit: '单元测试', midterm: '期中测试', final: '期末测试' };
-const sectionLabels: Record<AssessmentBlueprint['sections'][number]['type'], string> = { choice: '选择题', fill: '填空题', essay: '解答题' };
+const sectionLabels: Record<AssessmentBlueprint['sections'][number]['type'], string> = { choice: '选择题', multi_choice: '多选题', listening: '听力题', fill: '填空题', essay: '解答题' };
 
 function chaptersFor(book: EBook | undefined) {
   const chapters: Array<{ id: string; title: string }> = [];

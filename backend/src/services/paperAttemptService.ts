@@ -9,6 +9,7 @@ export class PaperAttemptValidationError extends Error {
 }
 
 type AttemptStatus = 'draft' | 'submitted';
+export type PaperAnswer = string | string[];
 type StoredAttempt = { id: string; paperId: string; ownerId: string; answersJson: string; reviewSnapshotJson: string | null; status: AttemptStatus; submittedAt: number | null; createdAt: number; updatedAt: number };
 
 function requiredString(value: unknown, field: string) {
@@ -29,11 +30,12 @@ function questionIds(database: Database.Database, paperId: string, ownerId: stri
 
 function parseAnswers(value: unknown, allowed: Set<string>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PaperAttemptValidationError('answers', 'answers必须是题号到作答内容的对象');
-  const answers: Record<string, string> = {};
+  const answers: Record<string, PaperAnswer> = {};
   for (const [questionId, answer] of Object.entries(value as Record<string, unknown>)) {
     if (!allowed.has(questionId)) throw new PaperAttemptValidationError('answers', `题号${questionId}不属于当前试卷`);
-    if (typeof answer !== 'string') throw new PaperAttemptValidationError('answers', `题号${questionId}的作答必须是文本`);
-    answers[questionId] = answer;
+    if (typeof answer === 'string') answers[questionId] = answer;
+    else if (Array.isArray(answer) && answer.every(item => typeof item === 'string')) answers[questionId] = [...new Set(answer)].map(item => item.trim()).filter(Boolean);
+    else throw new PaperAttemptValidationError('answers', `题号${questionId}的作答必须是文本或选项数组`);
   }
   return answers;
 }
@@ -42,7 +44,7 @@ function output(row: StoredAttempt) {
   return {
     id: row.id, paperId: row.paperId, ownerId: row.ownerId, status: row.status,
     submittedAt: row.submittedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
-    answers: JSON.parse(row.answersJson) as Record<string, string>,
+    answers: JSON.parse(row.answersJson) as Record<string, PaperAnswer>,
   };
 }
 
