@@ -337,8 +337,12 @@ async function validatedModel<T>(
         attempt ||
         signal.aborted ||
         (error instanceof SourcePaperError && error.status === 503)
-      )
-        throw timeout ? new SourcePaperError('model_timeout', '模型响应超时，请重新生成；本次未保存不完整试卷', 504) : error;
+      ) {
+        if (timeout) throw new SourcePaperError('model_timeout', '模型响应超时，请重新生成；本次未保存不完整试卷', 504);
+        if (validationFailure && !(error instanceof SourcePaperError))
+          throw new SourcePaperError('generated_content_incomplete', `原创试题校验未通过：${validationFailure}`, 422);
+        throw error;
+      }
     }
   }
   throw new Error("模型结果校验失败");
@@ -817,15 +821,26 @@ export async function createSourcePaperTask(
         );
         for (let s = 0; s < summary.sections.length; s++) {
           const section = summary.sections[s];
-        const questions: GeneratedQuestion[] = [];
+          const questions: GeneratedQuestion[] = [];
           if (summary.visualEvidence) Object.assign(section, { visualEvidence: summary.visualEvidence });
+          // The JSON example is part of the model's output contract. A text-
+          // only example contradicts mandatory visual/audio/array fields.
+          const exampleQuestion = {
+            stem: '题干',
+            ...(['choice', 'multi_choice', 'listening'].includes(section.responseType) ? { options: ['A. ...', 'B. ...', 'C. ...'] } : {}),
+            ...(section.requiresMaterial ? { material: '完整原创材料', groupId: 'g1' } : {}),
+            answer: section.responseType === 'multi_choice' ? ['A. ...', 'B. ...'] : '参考答案',
+            explanation: '适合学生的解析',
+            ...(section.responseType === 'listening' ? { audioScript: '完整原创听力原文' } : {}),
+            ...(section.requiresVisual ? { illustration: { description: '原创配图说明', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240"><circle cx="80" cy="100" r="30" fill="#2563eb"/></svg>' } } : {}),
+          };
           // SVG output is substantially larger than text answers. Bound each
           // visual request without shortening the confirmed paper.
           const batchSize = section.requiresVisual ? 2 : 8;
           for (let offset = 0; offset < counts[s]; offset += batchSize) {
             const count = Math.min(batchSize, counts[s] - offset);
             const batch = await validatedModel(
-              `为${analysis.targetGrade}学生生成${normalizeSubject(source.subject)}原创测试，难度必须适龄。母卷仅用来提取题型与知识点，下面只提供结构摘要；不得复现、简单换数或改写母卷。每题必须自足，可独立回顾。保留阅读/完形/配对/判断等真实题型，不能一律变为普通选择题。当前分区${JSON.stringify(section)}，本批恰好${count}道子题，知识点${JSON.stringify(summary.knowledgePoints)}。与已生成题目避免重复：${JSON.stringify([...sections.flatMap((x) => x.questions.map(q => q.stem)), ...questions.map(q => q.stem)])}。若requiresMaterial=true，每道子题都附上其所属完整原创材料material（文章/词库/配对项目等）及相同题组groupId，不能引用外部图片或未提供材料，每批自成完整题组，不能跨批依赖。每道stem必须提出一个明确问题或提供一个可填写的空格，不能只给阅读指令和材料而没有实际问题。输出前逐题自检：材料足以作答、答案集合确定、解析与答案一致；选择题正确选项位置应变化，不能全部是A。responseType=choice必须有至少2个非空不同选项，答案明确对应选项。responseType=multi_choice时answer必须是至少两个正确选项的字符串数组；choice和listening的answer是单个正确选项字符串，不能多选；listening还必须提供完整原创audioScript。requiresVisual=true时每题必须附illustration对象{description:配图中文说明,svg:完整SVG字符串}，不能只文字替代图。配图是不同于母卷的原创简单示意图，必须清晰支持本题唯一答案，不写出答案标签；复杂照片转化为相同知识点的简单可辨识原创场景。SVG不超过20000字符，根元素xmlns="http://www.w3.org/2000/svg"及viewBox="0 0 480 240"。仅用svg/g/path/rect/circle/ellipse/line/polyline/polygon/text/tspan/title/desc及基础绘图属性（fill/stroke、坐标、font-size、text-anchor等），不使用style/id/class/href/事件/脚本/image/外链/实体；文字不要依赖外部字体。JSON中属性引号正确转义。返回{"questions":[{"stem":"题干","options":["A. ...","B. ..."],"material":"完整原创材料","groupId":"g1","answer":"参考答案","explanation":"适合学生的解析"}]}，不要分数。`,
+              `为${analysis.targetGrade}学生生成${normalizeSubject(source.subject)}原创测试，难度必须适龄。母卷仅用来提取题型与知识点，下面只提供结构摘要；不得复现、简单换数或改写母卷。每题必须自足，可独立回顾。保留阅读/完形/配对/判断等真实题型，不能一律变为普通选择题。当前分区${JSON.stringify(section)}，本批恰好${count}道子题，知识点${JSON.stringify(summary.knowledgePoints)}。与已生成题目避免重复：${JSON.stringify([...sections.flatMap((x) => x.questions.map(q => q.stem)), ...questions.map(q => q.stem)])}。若requiresMaterial=true，每道子题都附上其所属完整原创材料material（文章/词库/配对项目等）及相同题组groupId，不能引用外部图片或未提供材料，每批自成完整题组，不能跨批依赖。每道stem必须提出一个明确问题或提供一个可填写的空格，不能只给阅读指令和材料而没有实际问题。输出前逐题自检：材料足以作答、答案集合确定、解析与答案一致；选择题正确选项位置应变化，不能全部是A。responseType=choice必须有至少2个非空不同选项，答案明确对应选项。responseType=multi_choice时answer必须是至少两个正确选项的字符串数组；choice和listening的answer是单个正确选项字符串，不能多选；listening还必须提供完整原创audioScript。requiresVisual=true时每题必须附illustration对象{description:配图中文说明,svg:完整SVG字符串}，不能只文字替代图。配图是不同于母卷的原创简单示意图，必须清晰支持本题唯一答案，不写出答案标签；复杂照片转化为相同知识点的简单可辨识原创场景。SVG不超过20000字符，根元素xmlns="http://www.w3.org/2000/svg"及viewBox="0 0 480 240"。仅用svg/g/path/rect/circle/ellipse/line/polyline/polygon/text/tspan/title/desc及基础绘图属性（fill/stroke、坐标、font-size、text-anchor等），不使用style/id/class/href/事件/脚本/image/外链/实体；文字不要依赖外部字体。JSON中属性引号正确转义。严格按下列JSON结构输出全部题目，示例中的字段均为必填（内容须换成原创题，配图须与本题匹配）：${JSON.stringify({ questions: [exampleQuestion] })}，不要分数。`,
               // Summary flags describe the source, but every newly generated
               // question must retain any context it actually depends on.
               (value) =>

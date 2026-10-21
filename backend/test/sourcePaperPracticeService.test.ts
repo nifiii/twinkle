@@ -403,7 +403,12 @@ test("verified picture-to-text sections generate original drawings and preserve 
   const analysis = await f.analyse();
   assert.equal(analysis.status, 'ready');
   const illustration = { description: '两个圆形', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240"><circle cx="50" cy="50" r="20"/><circle cx="150" cy="50" r="20"/></svg>' };
-  const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async () => ({ questions: [{ stem: 'There are ____ circles.', illustration, answer: 'two', explanation: '数出两个圆。' }] }) });
+  const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async prompt => {
+    // Emulate a provider following the concrete JSON contract, not prose-only
+    // instructions. The old text-only example would omit the required drawing.
+    const example = JSON.parse(prompt.match(/(\{"questions":\[\{[^\n]+\}\]\})，不要分数。/)![1]).questions[0];
+    return { questions: [{ ...example, stem: 'There are ____ circles.', ...(example.illustration ? { illustration } : {}), answer: 'two', explanation: '数出两个圆。' }] };
+  } });
   await f.jobs.shift()!();
   assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, 'ready');
   const row = f.database.prepare('SELECT id,contentJson FROM assessment_papers').get() as any;
