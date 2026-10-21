@@ -568,6 +568,21 @@ test("numbered passage blanks without matching questions cannot publish an appar
   assert.equal((f.database.prepare("SELECT COUNT(*) n FROM assessment_papers").get() as any).n, 0);
 });
 
+test('identical blank instructions with different passages are distinct; actual duplicate questions fail', async () => {
+  for (const sameMaterial of [false, true]) {
+    const f = fixture([1, 1, 1]);
+    const analysis = await f.analyse();
+    let serial = 0;
+    const task = await createSourcePaperTask(request(analysis.id, [1, 1, 1]), {
+      ...f.dependencies,
+      model: async () => ({ questions: [{ stem: 'Fill in blank (1).', material: `Word bank: blue, red. My ${sameMaterial ? 'bag' : ['bag', 'hat', 'pen'][serial++]} is (1)____.`, answer: 'blue', options: ['A. blue', 'B. red'], explanation: '选择表示蓝色的单词。' }] }),
+    });
+    await f.jobs.shift()!();
+    assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, sameMaterial ? 'failed' : 'ready');
+    assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, sameMaterial ? 0 : 1);
+  }
+});
+
 test("placeholder context cannot satisfy required passages", async () => {
   const f = fixture([1, 1, 1]);
   const a = await f.analyse();

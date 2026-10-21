@@ -869,9 +869,12 @@ export async function createSourcePaperTask(
           });
         }
         signal.throwIfAborted();
-        const stems = sections.flatMap((s) => s.questions.map((q) => q.stem));
-        if (new Set(stems).size !== stems.length)
-          throw new Error("全卷包含重复题目");
+        // Repeated blank instructions belong to different questions when the
+        // passage or drawing differs. Context is part of a question's identity.
+        const questionKeys = sections.flatMap((s) => s.questions.map((q) =>
+          JSON.stringify([q.stem, q.material || null, q.illustration?.svg || null])));
+        if (new Set(questionKeys).size !== questionKeys.length)
+          throw new SourcePaperError('generated_content_incomplete', '全卷包含题干及材料均相同的重复题目，请重新生成', 422);
         const latestSource = requireSource(database, owner, source.id);
         if (
           hash(
