@@ -23,10 +23,11 @@ import { createAssessmentBlueprint } from "../src/services/assessmentPaperServic
 
 function fixture(counts = [6, 4, 10]) {
   const database = new Database(":memory:");
-  database.exec(`CREATE TABLE books (id TEXT PRIMARY KEY,title TEXT,ownerId TEXT,subject TEXT,grade TEXT,category TEXT,tags TEXT,status TEXT,mdPath TEXT,tableOfContents TEXT);
+  // The service reads the archived original for optional vision analysis; text-only fixtures leave it null.
+  database.exec(`CREATE TABLE books (id TEXT PRIMARY KEY,title TEXT,ownerId TEXT,subject TEXT,grade TEXT,category TEXT,tags TEXT,status TEXT,mdPath TEXT,tableOfContents TEXT,filePath TEXT);
     CREATE TABLE users (id TEXT PRIMARY KEY,baseGrade INTEGER,baseGradeSetAt TEXT,birthDate TEXT);
     INSERT INTO users VALUES ('child_1',4,'2026-09',NULL),('child_2',5,'2026-09',NULL),('unknown',NULL,NULL,NULL);
-    INSERT INTO books VALUES ('paper','完整四上英语笔试试卷','shared','英语','五年级','试卷','[]','completed','paper.md','[]'),
+    INSERT INTO books (id,title,ownerId,subject,grade,category,tags,status,mdPath,tableOfContents) VALUES ('paper','完整四上英语笔试试卷','shared','英语','五年级','试卷','[]','completed','paper.md','[]'),
     ('textbook','英语教材','shared','英语','四年级','教材','[]','completed','book.md','[]'),
     ('olympiad','竞赛试卷','shared','数学','四年级','试卷','["奥数"]','completed','o.md','[]'),
     ('other','不可见母卷','other','英语','四年级','试卷','[]','completed','other.md','[]');`);
@@ -381,8 +382,8 @@ test("restart makes interrupted jobs explicit failures without reissuing model c
   );
 });
 
-test("unsupported media/multiselect and unassociated reading sections fail analysis", async () => {
-  for (const kind of ["听力选择", "看图选择", "多项选择", "阅读理解"]) {
+test("unsupported images and unassociated reading sections fail analysis", async () => {
+  for (const kind of ["看图选择", "阅读理解"]) {
     const f = fixture();
     f.summary.sections[0].questionKind = kind;
     const a = await f.analyse();
@@ -390,6 +391,50 @@ test("unsupported media/multiselect and unassociated reading sections fail analy
     assert.match(a.error!, /暂不支持|缺少题组材料关联/);
     assert.equal(f.jobs.length, 0);
   }
+});
+
+for (const responseType of ["multi_choice", "listening"] as const) {
+  test(`${responseType} generates and preserves answers through submission and review`, async () => {
+    const f = fixture([1]);
+    f.summary.sections[0].questionKind = responseType === "multi_choice" ? "多项选择" : "听力选择";
+    f.summary.sections[0].responseType = responseType;
+    const analysis = await f.analyse();
+    assert.equal(analysis.status, "ready");
+    const answer = responseType === "multi_choice" ? ["A. green", "B. yellow"] : "A. green";
+    const audioScript = "The school garden is green. Please choose green.";
+    const task = await createSourcePaperTask(request(analysis.id, [1]), {
+      ...f.dependencies,
+      model: async () => ({ questions: [{
+        stem: "Choose the suitable colours.", options: ["A. green", "B. yellow", "C. blue"],
+        answer, explanation: "结合材料选择颜色。", ...(responseType === "listening" ? { audioScript } : {}),
+      }] }),
+    });
+    await f.jobs.shift()!();
+    assert.equal(getLearningTask(f.database, task.id, "child_1")?.generationStatus, "ready");
+    const row = f.database.prepare("SELECT id,contentJson FROM assessment_papers").get() as { id: string; contentJson: string };
+    const question = JSON.parse(row.contentJson).sections[0].questions[0];
+    assert.equal(question.type, responseType);
+    assert.deepEqual(question.answer, answer);
+    if (responseType === "listening") assert.equal(question.audioScript, audioScript);
+    const attempt = createPaperAttempt({ ownerId: "child_1", paperId: row.id }, f.database);
+    const submitted = updatePaperAttempt(attempt.id, { ownerId: "child_1", action: "submit", answers: { [question.id]: answer } }, f.database);
+    assert.deepEqual(submitted.answers[question.id], answer);
+    const item = getPaperAttemptReview(f.database, attempt.id, "child_1")!.items[0];
+    const readableAnswer = Array.isArray(answer) ? answer.join("、") : answer;
+    assert.equal(item.studentAnswer, readableAnswer);
+    assert.equal(item.referenceAnswer, readableAnswer);
+  });
+}
+
+test("listening generation without an original script cannot publish a partial paper", async () => {
+  const f = fixture([1]);
+  f.summary.sections[0].questionKind = "听力选择";
+  f.summary.sections[0].responseType = "listening";
+  const analysis = await f.analyse();
+  const task = await createSourcePaperTask(request(analysis.id, [1]), f.dependencies);
+  await f.jobs.shift()!();
+  assert.equal(getLearningTask(f.database, task.id, "child_1")?.generationStatus, "failed");
+  assert.equal((f.database.prepare("SELECT COUNT(*) n FROM assessment_papers").get() as any).n, 0);
 });
 
 test("a standalone section cannot publish passage questions without context; correction names the problem", async () => {
