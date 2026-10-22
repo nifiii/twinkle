@@ -109,7 +109,7 @@ function normalizeEvidence(value: unknown, pages: number): SourcePaperVisionEvid
   }) : [];
   const issues = Array.isArray(source.issues) ? source.issues.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()) : [];
   for (const section of sections) {
-    if (section.requiresDrawing) issues.push(`${section.title}需要绘图作答，当前网页作答不支持`);
+    if (section.requiresDrawing) issues.push(`${section.title}${section.questionRange ? `（题号 ${section.questionRange}）` : ''}需要绘图作答，当前网页作答不支持`);
     if (section.requiresAudio && !section.title.includes('听力') && !section.title.toLowerCase().includes('listening')) issues.push(`${section.title}标记为音频材料，需确认听力原文`);
   }
   return { pages, sections, assets, issues: [...new Set(issues)] };
@@ -164,7 +164,8 @@ export async function analyzeSourcePaperVision(filePathInput: string, dependenci
 }
 
 export function assertEvidenceGeneratable(evidence: SourcePaperVisionEvidence): void {
+  const drawing = evidence.sections.filter(section => section.requiresDrawing);
+  if (drawing.length > 0) throw new SourcePaperVisionError('invalid_evidence', `母卷包含暂不支持的绘图作答题：${drawing.map(section => `${section.title}${section.questionRange ? `（题号 ${section.questionRange}）` : ''}需要绘图作答，当前网页作答不支持`).join('；')}`);
   if (evidence.issues.length > 0) throw new SourcePaperVisionError('invalid_evidence', `母卷材料不完整：${evidence.issues.join('；')}`);
-  if (evidence.sections.some(section => section.requiresDrawing)) throw new SourcePaperVisionError('invalid_evidence', '母卷包含暂不支持的绘图作答题');
   if (evidence.sections.some(section => section.requiresAudio && !section.title.includes('听力') && !section.title.toLowerCase().includes('listening'))) throw new SourcePaperVisionError('invalid_evidence', '母卷音频分区缺少可识别的听力材料');
 }

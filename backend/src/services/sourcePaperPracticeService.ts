@@ -13,7 +13,7 @@ import {
 } from "./learningTaskService.js";
 import { isSourcePaperMaterial } from "../utils/materialClassification.js";
 import { normalizeSubject } from "../utils/subject.js";
-import { analyzeSourcePaperVision, assertEvidenceGeneratable, SourcePaperVisionEvidence } from "./sourcePaperVisionService.js";
+import { analyzeSourcePaperVision, assertEvidenceGeneratable, SourcePaperVisionError, SourcePaperVisionEvidence } from "./sourcePaperVisionService.js";
 import { AssessmentIllustration, normalizeAssessmentIllustration } from "../utils/assessmentIllustration.js";
 
 export class SourcePaperError extends Error {
@@ -347,11 +347,17 @@ async function validatedModel<T>(
   }
   throw new Error("模型结果校验失败");
 }
-function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence): SourcePaperSummary {
-  if (visualEvidence) {
-    try { assertEvidenceGeneratable(visualEvidence); }
-    catch { throw new SourcePaperError('source_incomplete', '母卷视觉材料仍有缺失或需要学生绘图，请核对原文件', 422); }
+function validateVisualEvidence(evidence: SourcePaperVisionEvidence): void {
+  try { assertEvidenceGeneratable(evidence); }
+  catch (error) {
+    // Only domain validation messages may reach the page; provider details stay private.
+    if (error instanceof SourcePaperVisionError && error.code === 'invalid_evidence')
+      throw new SourcePaperError('source_incomplete', error.message.slice(0, 500), 422);
+    throw error;
   }
+}
+function validateSummary(value: any, visualEvidence?: SourcePaperVisionEvidence): SourcePaperSummary {
+  if (visualEvidence) validateVisualEvidence(visualEvidence);
   if (
     !value ||
     !["full", "written_only"].includes(value.scope) ||
@@ -525,6 +531,8 @@ export async function requestSourcePaperAnalysis(
         const visionModelConfigured = Boolean(process.env.ARK_SOURCE_PAPER_VISION_MODEL_ID || process.env.ARK_VISION_MODEL_ID);
         if (source.filePath && (visionModelConfigured || dependencies.analyzeVision)) {
           visionEvidence = await (dependencies.analyzeVision || ((filePath: string) => analyzeSourcePaperVision(filePath)))(source.filePath);
+          // Fixed PDF evidence cannot be corrected by retrying the text model.
+          validateVisualEvidence(visionEvidence);
           visionContext = `\n原始PDF视觉证据（只用于确认题型和材料是否完整，不得复现题目）：${JSON.stringify(visionEvidence)}`;
         }
         const summary = await validatedModel(

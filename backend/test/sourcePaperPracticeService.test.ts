@@ -434,6 +434,49 @@ test('actual drawing responses remain unsupported', async () => {
   assert.equal((await f.analyse()).status, 'failed');
 });
 
+for (const issue of ['绘本阅读（题号 31）需要绘图作答，当前网页作答不支持', '第4页图片模糊，无法核验']) {
+  test(`fixed visual blockers are specific and do not call the text model: ${issue}`, async () => {
+    const f = fixture([1]);
+    f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
+    f.dependencies.analyzeVision = async () => ({ pages: 5, sections: [], assets: [], issues: [issue] });
+    const analysis = await f.analyse();
+    assert.equal(analysis.status, 'failed');
+    assert.equal(analysis.error, `母卷材料不完整：${issue}`);
+    assert.equal(f.prompts.length, 0);
+    assert.equal((f.database.prepare('SELECT COUNT(*) n FROM learning_tasks').get() as any).n, 0);
+  });
+}
+
+test('stored visual evidence is checked again before creating any task', async () => {
+  const f = fixture([1]);
+  const analysis = await f.analyse();
+  const summary = { ...f.summary, visualEvidence: { pages: 1, sections: [], assets: [], issues: ['第31题需要绘图作答'] } };
+  f.database.prepare('UPDATE source_paper_analyses SET summaryJson=? WHERE id=?').run(JSON.stringify(summary), analysis.id);
+  await assert.rejects(createSourcePaperTask(request(analysis.id, [1]), f.dependencies), /第31题需要绘图作答/);
+  assert.equal((f.database.prepare('SELECT COUNT(*) n FROM learning_tasks').get() as any).n, 0);
+});
+
+test('verified drawing questions are reported as unsupported rather than missing materials', async () => {
+  const f = fixture([1]);
+  f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
+  f.dependencies.analyzeVision = async () => ({ pages: 5, assets: [], issues: ['绘本阅读需要绘图作答'], sections: [{ title: '绘本阅读', questionRange: '31', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }] });
+  const analysis = await f.analyse();
+  assert.equal(analysis.status, 'failed');
+  assert.match(analysis.error!, /暂不支持的绘图作答题.*题号 31/);
+  assert.doesNotMatch(analysis.error!, /材料不完整/);
+  assert.equal(f.prompts.length, 0);
+});
+
+test('vision provider failures do not expose private provider responses', async () => {
+  const f = fixture([1]);
+  f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
+  f.dependencies.analyzeVision = async () => { throw new Error('private provider response'); };
+  const analysis = await f.analyse();
+  assert.equal(analysis.status, 'failed');
+  assert.equal(analysis.error, '母卷结构分析失败，请稍后重新分析');
+  assert.equal(f.prompts.length, 0);
+});
+
 test('text-model output cannot invent verified visual evidence', async () => {
   const f = fixture([1]);
   f.summary.sections[0].questionKind = '看图填写';

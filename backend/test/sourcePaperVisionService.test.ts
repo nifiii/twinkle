@@ -55,3 +55,17 @@ test('blocks incomplete drawing/audio evidence before generation', () => {
     issues: [],
   }), (error: unknown) => error instanceof SourcePaperVisionError && error.code === 'invalid_evidence');
 });
+
+test('drawing blockers include the section and question range from the original page', async () => {
+  const { root, pdf } = await fixture();
+  try {
+    const evidence = await analyzeSourcePaperVision(pdf, {
+      dataDir: root,
+      renderPages: async () => ['p1.jpg'],
+      analyzePage: async () => ({ sections: [{ title: '绘本阅读', questionRange: '31', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }] }),
+    });
+    assert.throws(() => assertEvidenceGeneratable(evidence), /绘本阅读（题号 31）需要绘图作答，当前网页作答不支持/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
