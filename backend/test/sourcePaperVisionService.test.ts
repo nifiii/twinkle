@@ -47,16 +47,16 @@ test('merges page-level visual evidence and removes temporary rendered pages', a
   await assert.rejects(() => fs.access(path.dirname(seen[0])));
 });
 
-test('blocks incomplete drawing/audio evidence before generation', () => {
+test('blocks missing materials even when drawing conversion is supported', () => {
   assert.throws(() => assertEvidenceGeneratable({
     pages: 1,
     sections: [{ title: '阅读', questionRange: '1-2', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }],
     assets: [],
-    issues: [],
+    issues: ['第2题配图缺失'],
   }), (error: unknown) => error instanceof SourcePaperVisionError && error.code === 'invalid_evidence');
 });
 
-test('drawing blockers include the section and question range from the original page', async () => {
+test('drawing evidence preserves the original question range without inventing a missing-material issue', async () => {
   const { root, pdf } = await fixture();
   try {
     const evidence = await analyzeSourcePaperVision(pdf, {
@@ -64,7 +64,10 @@ test('drawing blockers include the section and question range from the original 
       renderPages: async () => ['p1.jpg'],
       analyzePage: async () => ({ sections: [{ title: '绘本阅读', questionRange: '31', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }] }),
     });
-    assert.throws(() => assertEvidenceGeneratable(evidence), /绘本阅读（题号 31）需要绘图作答，当前网页作答不支持/);
+    assert.equal(evidence.sections[0].requiresDrawing, true);
+    assert.equal(evidence.sections[0].questionRange, '31');
+    assert.deepEqual(evidence.issues, []);
+    assert.doesNotThrow(() => assertEvidenceGeneratable(evidence));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -30,6 +30,7 @@
 - `PaperAttempt.answers`: `Record<string, string | string[]>`。
 - 图片题追加 `AssessmentQuestion.illustration?: { description: string; svg: string }`，并原样保存到作答回顾快照。看图文字作答分区 `requiresVisual=true` 时每题必填；只允许不含脚本、外链、嵌入图片的静态 SVG 子集；缺图或非法图阻断整卷发布。
 - `requiresDrawing` 仅指学生需要画图或补画；看图填空、选择、写作不能归入绘图作答。
+- BR-MM-013（2026-10-22 用户确认）：视觉证据的 `requiresDrawing` 保留原卷事实，不再单独成为失败原因。分析摘要 `sections[].convertedFromDrawing?: true` 标注转换，转换时必填 `conversionGoal`（至多 240 字的文字考查目标），相关分区 `responseType=essay`、`questionKind=问答题（原绘图题）`；混合分区拆开且子题总数不变。生成题型仍用现有 `essay`，答案为字符串，已有提交/回顾/PDF契约不变。缺失材料照常失败，不把绘图能力缺少当作原文件损坏。
 - `requiresMaterial` 表示作答依赖材料。`requiresVisual=true` 的图文配对可以由已校验的原创 illustration 满足；题干明确引用短文/文章/对话/词库时仍必须提供对应文字 material，不允许用图片掩盖缺少的阅读原文。
 - 缺失材料响应使用 `400`，`field=sourcePaper`，错误信息必须说明缺失项。
 

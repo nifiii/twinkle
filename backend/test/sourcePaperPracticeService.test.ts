@@ -428,13 +428,13 @@ test("verified picture-to-text sections generate original drawings and preserve 
   assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 1);
 });
 
-test('actual drawing responses remain unsupported', async () => {
+test('drawing conversion without an identifiable knowledge-point goal fails analysis', async () => {
   const f = fixture([1]);
   f.summary.sections[0].questionKind = '画图补全形状';
   assert.equal((await f.analyse()).status, 'failed');
 });
 
-for (const issue of ['绘本阅读（题号 31）需要绘图作答，当前网页作答不支持', '第4页图片模糊，无法核验']) {
+for (const issue of ['绘本阅读第31题的材料缺页', '第4页图片模糊，无法核验']) {
   test(`fixed visual blockers are specific and do not call the text model: ${issue}`, async () => {
     const f = fixture([1]);
     f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
@@ -450,22 +450,63 @@ for (const issue of ['绘本阅读（题号 31）需要绘图作答，当前网�
 test('stored visual evidence is checked again before creating any task', async () => {
   const f = fixture([1]);
   const analysis = await f.analyse();
-  const summary = { ...f.summary, visualEvidence: { pages: 1, sections: [], assets: [], issues: ['第31题需要绘图作答'] } };
+  const summary = { ...f.summary, visualEvidence: { pages: 1, sections: [], assets: [], issues: ['第31题缺少原图'] } };
   f.database.prepare('UPDATE source_paper_analyses SET summaryJson=? WHERE id=?').run(JSON.stringify(summary), analysis.id);
-  await assert.rejects(createSourcePaperTask(request(analysis.id, [1]), f.dependencies), /第31题需要绘图作答/);
+  await assert.rejects(createSourcePaperTask(request(analysis.id, [1]), f.dependencies), /第31题缺少原图/);
   assert.equal((f.database.prepare('SELECT COUNT(*) n FROM learning_tasks').get() as any).n, 0);
 });
 
-test('verified drawing questions are reported as unsupported rather than missing materials', async () => {
+test('analysis cannot silently omit drawing questions identified by verified pages', async () => {
   const f = fixture([1]);
   f.database.prepare("UPDATE books SET filePath='original.pdf' WHERE id='paper'").run();
-  f.dependencies.analyzeVision = async () => ({ pages: 5, assets: [], issues: ['绘本阅读需要绘图作答'], sections: [{ title: '绘本阅读', questionRange: '31', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }] });
+  f.dependencies.analyzeVision = async () => ({ pages: 5, assets: [], issues: [], sections: [{ title: '绘本阅读', questionRange: '31', responseType: 'essay', requiresMaterial: true, requiresVisual: true, requiresAudio: false, requiresDrawing: true }] });
   const analysis = await f.analyse();
   assert.equal(analysis.status, 'failed');
-  assert.match(analysis.error!, /暂不支持的绘图作答题.*题号 31/);
+  assert.match(analysis.error!, /绘图子题未转换/);
   assert.doesNotMatch(analysis.error!, /材料不完整/);
-  assert.equal(f.prompts.length, 0);
+  assert.equal(f.prompts.length, 2);
 });
+
+test('drawing conversion preserves other question types, counts, submission and review', async () => {
+  const f = fixture([1, 1]);
+  Object.assign(f.summary.sections[1], { title: '图形理解', questionKind: '画图题', requiresDrawing: true, requiresMaterial: false, conversionGoal: '用文字解释三角形边的数量' });
+  const analysis = await f.analyse();
+  assert.equal(analysis.status, 'ready');
+  assert.equal(analysis.summary!.sections[0].responseType, 'choice');
+  assert.equal(analysis.summary!.sections[1].responseType, 'essay');
+  assert.equal(analysis.summary!.sections[1].convertedFromDrawing, true);
+  assert.equal(analysis.summary!.sections[1].questionKind, '问答题（原绘图题）');
+  assert.equal(analysis.summary!.sections.reduce((sum, s) => sum + s.questionCount, 0), 2);
+  const task = await createSourcePaperTask(request(analysis.id, [1, 1]), { ...f.dependencies, model: async (prompt, signal) => {
+    if (!prompt.includes('"convertedFromDrawing":true')) return f.dependencies.model!(prompt, signal);
+    assert.match(prompt, /用文字解释三角形边的数量/);
+    return { questions: [{ stem: '一个三角形有几条边？请用文字说明。', answer: '三条边', explanation: '三角形由三条线段首尾连接而成。' }] };
+  } });
+  await f.jobs.shift()!();
+  assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, 'ready');
+  const row = f.database.prepare('SELECT id,contentJson FROM assessment_papers').get() as any;
+  const sections = JSON.parse(row.contentJson).sections;
+  assert.deepEqual(sections.map((s: any) => s.questions[0].type), ['choice', 'essay']);
+  const attempt = createPaperAttempt({ ownerId: 'child_1', paperId: row.id }, f.database);
+  const question = sections[1].questions[0];
+  updatePaperAttempt(attempt.id, { ownerId: 'child_1', action: 'submit', answers: { [sections[0].questions[0].id]: 'A. green', [question.id]: '三条边' } }, f.database);
+  const review = getPaperAttemptReview(f.database, attempt.id, 'child_1')!.items[1];
+  assert.equal(review.studentAnswer, '三条边');
+  assert.equal(review.referenceAnswer, '三条边');
+  assert.match(review.explanation, /首尾连接/);
+});
+
+for (const stem of ['请画出一个三角形。', 'Draw a triangle.']) {
+  test(`converted questions still asking for drawings cannot publish: ${stem}`, async () => {
+    const f = fixture([1]);
+    Object.assign(f.summary.sections[0], { questionKind: '画图题', conversionGoal: '用文字解释三角形的特点' });
+    const analysis = await f.analyse();
+    const task = await createSourcePaperTask(request(analysis.id, [1]), { ...f.dependencies, model: async () => ({ questions: [{ stem, answer: '三角形', explanation: '三条边组成。' }] }) });
+    await f.jobs.shift()!();
+    assert.equal(getLearningTask(f.database, task.id, 'child_1')?.generationStatus, 'failed');
+    assert.equal((f.database.prepare('SELECT COUNT(*) n FROM assessment_papers').get() as any).n, 0);
+  });
+}
 
 test('vision provider failures do not expose private provider responses', async () => {
   const f = fixture([1]);

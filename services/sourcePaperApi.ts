@@ -29,6 +29,8 @@ export type SourcePaperAnalysis = {
       questionCount: number;
       groupCount: number;
       requiresMaterial: boolean;
+      convertedFromDrawing?: boolean;
+      conversionGoal?: string;
     }>;
   };
 };

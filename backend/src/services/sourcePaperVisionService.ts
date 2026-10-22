@@ -109,7 +109,6 @@ function normalizeEvidence(value: unknown, pages: number): SourcePaperVisionEvid
   }) : [];
   const issues = Array.isArray(source.issues) ? source.issues.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()) : [];
   for (const section of sections) {
-    if (section.requiresDrawing) issues.push(`${section.title}${section.questionRange ? `（题号 ${section.questionRange}）` : ''}需要绘图作答，当前网页作答不支持`);
     if (section.requiresAudio && !section.title.includes('听力') && !section.title.toLowerCase().includes('listening')) issues.push(`${section.title}标记为音频材料，需确认听力原文`);
   }
   return { pages, sections, assets, issues: [...new Set(issues)] };
@@ -124,7 +123,7 @@ async function analyzePageWithArk(input: { page: number; imagePath: string }, de
   const response = await client.chat.completions.create({
     model,
     temperature: 0.1,
-    messages: [{ role: 'user', content: [
+    messages: [{ role: 'system', content: '仅记录原卷事实。学生画图/补画要求记录为 requiresDrawing=true，后续会转换为文字问答；绘图要求本身不是材料缺失，不得因此写入 issues。混合作答类型按子题拆成分区，questionRange 精确标注对应题号，不能把同组所有子题都标为绘图。真正缺失或模糊的材料照常写入 issues。' }, { role: 'user', content: [
       { type: 'text', text: `你是小学试卷结构分析器。只输出 JSON，不复现题目全文、原文或原图。分析第 ${input.page} 页，识别分区、题号范围、作答类型和材料依赖。responseType 仅 choice、multi_choice、fill、essay、listening。看图填空/选择/写话都只需文字作答，requiresVisual=true、requiresDrawing=false；仅要求学生画图或补画才requiresDrawing=true。assets.description概括视觉对象、数量、关系及考查能力，足以据此设计不同情境的原创配图，不转录原题。若原图清楚可见，不因OCR缺少图片文字而报缺失；真正看不清或材料缺失必须写入issues，不猜测。跨页阅读的续页不是材料缺失。格式：{"sections":[{"title":"","questionRange":"1-5","responseType":"choice","requiresMaterial":false,"requiresVisual":false,"requiresAudio":false,"requiresDrawing":false}],"assets":[{"type":"diagram","page":${input.page},"bbox":[0,0,0,0],"questionNumbers":[],"description":"","confidence":0.0}],"issues":[]}` },
       { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } },
     ] }] as any,
@@ -164,8 +163,6 @@ export async function analyzeSourcePaperVision(filePathInput: string, dependenci
 }
 
 export function assertEvidenceGeneratable(evidence: SourcePaperVisionEvidence): void {
-  const drawing = evidence.sections.filter(section => section.requiresDrawing);
-  if (drawing.length > 0) throw new SourcePaperVisionError('invalid_evidence', `母卷包含暂不支持的绘图作答题：${drawing.map(section => `${section.title}${section.questionRange ? `（题号 ${section.questionRange}）` : ''}需要绘图作答，当前网页作答不支持`).join('；')}`);
   if (evidence.issues.length > 0) throw new SourcePaperVisionError('invalid_evidence', `母卷材料不完整：${evidence.issues.join('；')}`);
   if (evidence.sections.some(section => section.requiresAudio && !section.title.includes('听力') && !section.title.toLowerCase().includes('listening'))) throw new SourcePaperVisionError('invalid_evidence', '母卷音频分区缺少可识别的听力材料');
 }
