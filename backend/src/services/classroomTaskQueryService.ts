@@ -383,7 +383,14 @@ export function listClassroomTasks(database: Database.Database, ownerId: unknown
   const limit = Math.min(Math.max(filters.limit || 20, 1), 100);
   const cursor = decodeCursor(filters.cursor);
   expireStaleLearningTasks(database, owner);
-  const tasks = listLearningTasks(database, owner).map(task => toTaskSummary(database, task));
+  // A terminal source-paper failure has no learning content and no safe retry
+  // path: the user must return to the assistant and choose the
+  // source/configuration again. Keep queued/running rows visible so generation
+  // progress remains discoverable, but do not turn failed attempts into
+  // non-actionable classroom cards such as “请重新选择试卷条件创建”.
+  const tasks = listLearningTasks(database, owner)
+    .filter(task => !(task.sourceType === 'source_paper' && ['failed', 'resource_unavailable'].includes(task.generationStatus)))
+    .map(task => toTaskSummary(database, task));
   // New tasks reference the original entity directly. Keep legacy rows only for entities
   // that have not yet been adopted, otherwise students see the same work twice.
   const linkedTargets = new Set(tasks.flatMap(task => [...readTaskLinks(database, task.id), ...(task.primaryLink ? [task.primaryLink] : [])])

@@ -97,6 +97,21 @@ test('changes generation stuck beyond five minutes into a retryable failure', ()
   assert.equal(getClassroomTask(database, task.id, 'child_1')?.errorCode, 'generation_timeout');
 });
 
+test('hides failed source-paper tasks that have no classroom content', () => {
+  const database = createDatabase();
+  const { task } = createLearningTask(database, {
+    ownerId: 'child_1', requestKey: 'failed-source-paper', taskType: 'assessment', sourceType: 'source_paper',
+    subject: '英语', grade: '小学四年级', title: '小学四年级英语原创测试', bookId: 'book-1', chapterIds: [],
+  }, 2000);
+  assert.equal(listClassroomTasks(database, 'child_1', { subject: '英语', taskType: 'assessment' }).items.some(item => item.id === task.id), true);
+  updateLearningTaskGenerationStatus(database, task.id, 'running', { now: 2100 });
+  updateLearningTaskGenerationStatus(database, task.id, 'failed', { now: 2200, errorCode: 'source_incomplete', errorMessage: '母卷视觉材料不完整' });
+
+  assert.equal(listClassroomTasks(database, 'child_1', { subject: '英语', taskType: 'assessment' }).items.some(item => item.id === task.id), false);
+  assert.equal(getClassroomTask(database, task.id, 'child_1')?.generationStatus, 'failed');
+  database.close();
+});
+
 test('indexes a historical classroom quiz result and resolves its native detail reference', () => {
   const database = createDatabase();
   database.exec(`CREATE TABLE quiz_results (id TEXT PRIMARY KEY, quizId TEXT, bookTitle TEXT, chapter TEXT, subject TEXT, ownerId TEXT, correctCount INTEGER, total INTEGER, percentage INTEGER, status TEXT, createdAt INTEGER)`);
